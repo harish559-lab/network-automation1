@@ -1,0 +1,3 @@
+# Group variables for all switches
+mac_aging_time: 300
+traffic_interface: enp2s0

@@ -1,0 +1,27 @@
+# =============================================================
+# pyATS Testbed : testbed.yaml
+# Device        : Hfcl-Switch
+# Connection    : SSH (username/password)
+# =============================================================
+
+testbed:
+  name: MAC_Aging_Testbed
+
+devices:
+  Hfcl-Switch:
+    alias: switch
+    type: switch
+    os: linux                         # generic linux os for pyATS
+    platform: linux
+    credentials:
+      default:
+        username: admin
+        password: admin
+    connections:
+      cli:
+        protocol: ssh
+        ip: 192.168.180.152
+        port: 22
+        ssh_options: "-o StrictHostKeyChecking=no"
+        arguments:
+          connection_timeout: 30

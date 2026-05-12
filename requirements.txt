@@ -1,0 +1,21 @@
+# =====================================================
+# requirements.txt — MAC Aging Test Automation Stack
+# =====================================================
+
+# Ansible + network collection
+ansible>=8.0.0
+ansible-pylibssh>=1.1.0
+paramiko>=3.0.0
+
+# Ansible network collections (install separately via ansible-galaxy)
+# ansible-galaxy collection install ansible.netcommon
+
+# pyATS framework
+pyats[full]>=23.0
+
+# Traffic generation
+scapy>=2.5.0
+
+# Utilities
+pyyaml>=6.0
+jinja2>=3.1.0

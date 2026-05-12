@@ -1,0 +1,192 @@
+---
+# =============================================================
+# Playbook : mac_aging_config.yml
+# Purpose  : Configure & verify MAC address-table aging-time
+# Device   : Hfcl-Switch (192.168.180.152)
+# All tasks delegate to localhost and use Paramiko SSH directly
+# =============================================================
+
+- name: "MAC Address Table Expiry Interval - Configuration & Verification"
+  hosts: localhost
+  gather_facts: false
+  vars:
+    switch_ip: "192.168.180.152"
+    switch_user: "admin"
+    switch_pass: "admin"
+    mac_aging_time: 50
+    traffic_interface: "enp2s0"
+    helper_script: "/home/harish/Documents/network-automation/scripts/switch_cmd.py"
+    traffic_script: "/home/harish/Documents/network-automation/scripts/MAC_generate_traffic.py"
+
+  tasks:
+
+    # -------------------------------------------------------
+    # STEP 0 — Write the Paramiko helper script on the fly
+    # -------------------------------------------------------
+    - name: "STEP 0 | Create Paramiko SSH helper script"
+      copy:
+        dest: "{{ helper_script }}"
+        mode: "0755"
+        content: |
+          #!/usr/bin/env python3
+          """
+          switch_cmd.py  —  Send commands to HFCL switch over SSH using Paramiko.
+          Usage:
+            python3 switch_cmd.py <ip> <user> <password> "cmd1" "cmd2" ...
+          """
+          import sys, time, paramiko
+
+          ip       = sys.argv[1]
+          user     = sys.argv[2]
+          password = sys.argv[3]
+          commands = sys.argv[4:]
+
+          client = paramiko.SSHClient()
+          client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+          client.connect(ip, username=user, password=password, timeout=15, look_for_keys=False)
+
+          shell = client.invoke_shell(width=200, height=50)
+          time.sleep(1)
+          shell.recv(65535)   # flush banner
+
+          output = ""
+          for cmd in commands:
+              shell.send(cmd + "\n")
+              time.sleep(1)
+              chunk = shell.recv(65535).decode("utf-8", errors="ignore")
+              output += chunk
+
+          client.close()
+          print(output)
+
+    # -------------------------------------------------------
+    # STEP 1 — Configure MAC aging-time (config mode)
+    # -------------------------------------------------------
+    - name: "STEP 1 | Configure MAC aging-time to {{ mac_aging_time }} seconds"
+      command: >
+        python3 {{ helper_script }}
+        {{ switch_ip }} {{ switch_user }} {{ switch_pass }}
+        "configure terminal"
+        "mac address-table aging-time {{ mac_aging_time }}"
+        "end"
+      register: mac_age_config_output
+
+    - name: "STEP 1 | Debug output"
+      debug:
+        var: mac_age_config_output.stdout_lines
+
+    # -------------------------------------------------------
+    # STEP 2 — Verify aging-time
+    # -------------------------------------------------------
+    - name: "STEP 2 | Verify MAC aging-time configuration"
+      command: >
+        python3 {{ helper_script }}
+        {{ switch_ip }} {{ switch_user }} {{ switch_pass }}
+        "show mac address-table aging-time"
+      register: aging_verify_output
+
+    - name: "STEP 2 | Debug aging-time output"
+      debug:
+        var: aging_verify_output.stdout_lines
+
+    - name: "STEP 2 | Assert MAC Age Time: {{ mac_aging_time }}"
+      assert:
+        that:
+          - "'MAC Age Time: {{ mac_aging_time }}' in aging_verify_output.stdout"
+        success_msg: "✅ MAC aging-time correctly set to {{ mac_aging_time }} seconds"
+        fail_msg:    "❌ MAC aging-time NOT set to {{ mac_aging_time }} seconds"
+
+    # -------------------------------------------------------
+    # STEP 3 — Capture MAC table BEFORE traffic
+    # -------------------------------------------------------
+    - name: "STEP 3 | Capture MAC table BEFORE traffic"
+      command: >
+        python3 {{ helper_script }}
+        {{ switch_ip }} {{ switch_user }} {{ switch_pass }}
+        "show mac address-table"
+      register: mac_table_before
+
+    - name: "STEP 3 | Debug MAC table before"
+      debug:
+        var: mac_table_before.stdout_lines
+
+    # -------------------------------------------------------
+    # STEP 4 — Generate bi-directional traffic
+    # -------------------------------------------------------
+    - name: "STEP 4 | Generate bi-directional traffic using Scapy"
+      command: "sudo python3 {{ traffic_script }} --interface {{ traffic_interface }}"
+      register: traffic_output
+      ignore_errors: true
+
+    - name: "STEP 4 | Debug traffic output"
+      debug:
+        var: traffic_output.stdout_lines
+
+    # -------------------------------------------------------
+    # STEP 5 — Capture MAC table AFTER traffic
+    # -------------------------------------------------------
+    - name: "STEP 5 | Wait 5 seconds for MAC table to update"
+      wait_for:
+        timeout: 5
+
+    - name: "STEP 5 | Capture MAC table AFTER traffic"
+      command: >
+        python3 {{ helper_script }}
+        {{ switch_ip }} {{ switch_user }} {{ switch_pass }}
+        "show mac address-table"
+      register: mac_table_after
+
+    - name: "STEP 5 | Debug MAC table after traffic"
+      debug:
+        var: mac_table_after.stdout_lines
+
+    - name: "STEP 5 | Save MAC-table snapshot"
+      copy:
+        content: "{{ mac_table_after.stdout }}"
+        dest: "/tmp/mac_table_snapshot.txt"
+
+    # -------------------------------------------------------
+    # STEP 6 — Wait for aging-time to expire
+    # -------------------------------------------------------
+    - name: "STEP 6 | Wait {{ mac_aging_time | int + 30 }} seconds for entries to age out"
+      wait_for:
+        timeout: "{{ mac_aging_time | int + 30 }}"
+
+    - name: "STEP 6 | Capture MAC table AFTER expiry"
+      command: >
+        python3 {{ helper_script }}
+        {{ switch_ip }} {{ switch_user }} {{ switch_pass }}
+        "show mac address-table"
+      register: mac_table_expired
+
+    - name: "STEP 6 | Debug MAC table after expiry"
+      debug:
+        var: mac_table_expired.stdout_lines
+
+    # -------------------------------------------------------
+    # STEP 7 — Save report
+    # -------------------------------------------------------
+    - name: "STEP 7 | Save final report"
+      copy:
+        content: |
+          ============================================================
+          MAC Address Table Expiry Test Report
+          Device    : Hfcl-Switch (192.168.180.152)
+          Interface : {{ traffic_interface }}
+          Aging Time: {{ mac_aging_time }} seconds
+          ============================================================
+
+          --- MAC Table BEFORE Traffic ---
+          {{ mac_table_before.stdout }}
+
+          --- MAC Table AFTER Traffic (entries learned) ---
+          {{ mac_table_after.stdout }}
+
+          --- MAC Table AFTER Expiry (dynamic entries flushed) ---
+          {{ mac_table_expired.stdout }}
+          ============================================================
+        dest: "/tmp/mac_expiry_test_report.txt"
+
+    - name: "STEP 7 | Done"
+      debug:
+        msg: "✅ MAC Expiry Test completed. Report saved to /tmp/mac_expiry_test_report.txt"
