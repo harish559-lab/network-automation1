@@ -2,62 +2,22 @@
 # =============================================================
 # Playbook : mac_aging_config.yml
 # Purpose  : Configure & verify MAC address-table aging-time
-# Device   : Hfcl-Switch (192.168.180.152)
-# All tasks delegate to localhost and use Paramiko SSH directly
+# Device   : Hfcl-Switch
 # =============================================================
 
 - name: "MAC Address Table Expiry Interval - Configuration & Verification"
   hosts: localhost
   gather_facts: false
   vars:
-   # switch_ip: "{{ switch_ip }}"             # pulled from group_vars
-   # switch_user: "admin"
-   # switch_pass: "admin"
+    switch_ip: "192.168.180.96"
+    switch_user: "admin"
+    switch_pass: "admin"
     mac_aging_time: 50
     traffic_interface: "enp2s0"
-    helper_script: "{{ playbook_dir }}/../../../scripts/switch_cmd.py"   # ← relative path
+    helper_script: "{{ playbook_dir }}/../../../scripts/switch_cmd.py"
     traffic_script: "{{ playbook_dir }}/../../../scripts/MAC_generate_traffic.py"
 
   tasks:
-
-    # -------------------------------------------------------
-    # STEP 0 — Write the Paramiko helper script on the fly
-    # -------------------------------------------------------
-    - name: "STEP 0 | Create Paramiko SSH helper script"
-      copy:
-        dest: "{{ helper_script }}"
-        mode: "0755"
-        content: |
-          #!/usr/bin/env python3
-          """
-          switch_cmd.py  —  Send commands to HFCL switch over SSH using Paramiko.
-          Usage:
-            python3 switch_cmd.py <ip> <user> <password> "cmd1" "cmd2" ...
-          """
-          import sys, time, paramiko
-
-          ip       = sys.argv[1]
-          user     = sys.argv[2]
-          password = sys.argv[3]
-          commands = sys.argv[4:]
-
-          client = paramiko.SSHClient()
-          client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-          client.connect(ip, username=user, password=password, timeout=15, look_for_keys=False)
-
-          shell = client.invoke_shell(width=200, height=50)
-          time.sleep(1)
-          shell.recv(65535)   # flush banner
-
-          output = ""
-          for cmd in commands:
-              shell.send(cmd + "\n")
-              time.sleep(1)
-              chunk = shell.recv(65535).decode("utf-8", errors="ignore")
-              output += chunk
-
-          client.close()
-          print(output)
 
     # -------------------------------------------------------
     # STEP 1 — Configure MAC aging-time (config mode)
@@ -112,9 +72,13 @@
 
     # -------------------------------------------------------
     # STEP 4 — Generate bi-directional traffic
+    # Run on local machine via SSH (Jenkins Docker has no enp2s0)
     # -------------------------------------------------------
-    - name: "STEP 4 | Generate bi-directional traffic using Scapy"
-      command: "sudo python3 {{ traffic_script }} --interface {{ traffic_interface }}"
+    - name: "STEP 4 | Generate bi-directional traffic via local machine"
+      command: >
+        ssh -o StrictHostKeyChecking=no
+        harish@192.168.180.95
+        "sudo python3 {{ traffic_script }} --interface {{ traffic_interface }}"
       register: traffic_output
       ignore_errors: true
 
@@ -171,7 +135,7 @@
         content: |
           ============================================================
           MAC Address Table Expiry Test Report
-          Device    : Hfcl-Switch (192.168.180.152)
+          Device    : Hfcl-Switch (192.168.180.96)
           Interface : {{ traffic_interface }}
           Aging Time: {{ mac_aging_time }} seconds
           ============================================================

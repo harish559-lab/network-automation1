@@ -5,7 +5,7 @@ devices:
   Hfcl-Switch:
     alias: switch
     type: switch
-    os: ios
+    os: generic
     platform: hfcl
 
     credentials:

@@ -36,7 +36,7 @@ from pyats.topology import loader
 # ---------------------------------------------------------------------------
 DEVICE_NAME    = "Hfcl-Switch"
 TRAFFIC_IFACE  = "enp2s0"
-MAC_AGING_TIME = 300        # seconds
+MAC_AGING_TIME = 50        # seconds
 TRAFFIC_SCRIPT = "/home/harish/Documents/network-automation/scripts/MAC_generate_traffic.py"
 
 # MACs injected by generate_traffic.py
