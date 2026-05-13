@@ -13,7 +13,7 @@ try:
     client.connect(ip, username=user, password=password, timeout=15, look_for_keys=False)
 except Exception as e:
     print(f"[ERROR] SSH connection failed: {e}")
-    sys.exit(1)
+    import sys; sys.exit(1)
 
 shell = client.invoke_shell(width=200, height=50)
 time.sleep(1)
@@ -21,14 +21,12 @@ shell.recv(65535)
 
 output = ""
 
-shell.send("terminal length 0
-")
+shell.send("terminal length 0\n")
 time.sleep(1)
 shell.recv(65535)
 
 for cmd in commands:
-    shell.send(cmd + "
-")
+    shell.send(cmd + "\n")
     time.sleep(2)
     chunk = shell.recv(65535).decode("utf-8", errors="ignore")
     output += chunk
