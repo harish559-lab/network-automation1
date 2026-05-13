@@ -13,8 +13,11 @@ pipeline {
         PLAYBOOK       = "${WORKSPACE}/ansible/playbooks/layer2/mac_aging_config.yml"
         INVENTORY      = "${WORKSPACE}/ansible/inventory/hosts.ini"
         PYATS_TEST     = "${WORKSPACE}/pyats/testcases/layer2/test_mac_aging.py"
-        TRAFFIC_SCRIPT = "${WORKSPACE}/scripts/MAC_generate_traffic.py"
         REPORT_DIR     = "${WORKSPACE}/reports"
+        LOCAL_MACHINE  = "192.168.180.95"       // your local machine IP
+        LOCAL_USER     = "harish"
+        TRAFFIC_SCRIPT = "/home/harish/Documents/network-automation/scripts/MAC_generate_traffic.py"
+        TRAFFIC_IFACE  = "enp2s0"
     }
 
     options {
@@ -70,13 +73,16 @@ pipeline {
 
         // -----------------------------------------------------------
         // STAGE 3 — Traffic Generation
+        // Run on LOCAL MACHINE (192.168.180.95) via SSH
+        // because Jenkins Docker has no enp2s0 interface
         // -----------------------------------------------------------
         stage('Generate Bi-directional Traffic') {
             steps {
-                echo '=== Sending bi-directional traffic via Scapy ==='
+                echo '=== Sending bi-directional traffic via local machine ==='
                 sh '''
-                    sudo python3 ${TRAFFIC_SCRIPT} \
-                        --interface enp2s0 \
+                    ssh -o StrictHostKeyChecking=no \
+                        ${LOCAL_USER}@${LOCAL_MACHINE} \
+                        "sudo python3 ${TRAFFIC_SCRIPT} --interface ${TRAFFIC_IFACE}" \
                         2>&1 | tee ${REPORT_DIR}/traffic_run.log
                     echo "✅ Traffic generation completed"
                 '''
@@ -130,7 +136,7 @@ pipeline {
                     [ -f /tmp/mac_table_snapshot.txt ] && \
                         cp /tmp/mac_table_snapshot.txt ${REPORT_DIR}/ || true
                     echo "📁 Reports:"
-                    ls -la ${REPORT_DIR}/ || true
+                    ls -la ${REPORT_DIR}/
                 '''
                 archiveArtifacts artifacts: 'reports/**/*',
                                  allowEmptyArchive: true
