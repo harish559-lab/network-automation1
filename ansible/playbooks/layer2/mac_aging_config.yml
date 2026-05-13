@@ -15,8 +15,8 @@
     switch_pass: "admin"
     mac_aging_time: 50
     traffic_interface: "enp2s0"
-    helper_script: "/home/harish/Documents/network-automation/scripts/switch_cmd.py"
-    traffic_script: "/home/harish/Documents/network-automation/scripts/MAC_generate_traffic.py"
+    helper_script: "{{ playbook_dir }}/../../../scripts/switch_cmd.py"   # ← relative path
+    traffic_script: "{{ playbook_dir }}/../../../scripts/MAC_generate_traffic.py"
 
   tasks:
 
