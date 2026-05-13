@@ -1,0 +1,17 @@
+# Virtual environment
+networkvenv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# pyATS logs and reports
+*.log
+/tmp/
+reports/
+
+# OS files
+.DS_Store
+*.swp

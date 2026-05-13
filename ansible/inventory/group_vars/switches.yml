@@ -1,3 +1,36 @@
-# Group variables for all switches
-mac_aging_time: 300
+# =====================================================
+# group_vars/switches.yml
+# Variables applied to ALL switches in [switches] group
+# =====================================================
+
+# --- Device Connection ---
+ansible_user: admin
+ansible_password: admin
+ansible_connection: ssh
+ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+ansible_python_interpreter: /usr/bin/python3
+switch_ip: "192.168.180.96"
+
+# --- Script Paths ---
+helper_script: "/home/harish/Documents/network-automation/scripts/switch_cmd.py"
+traffic_script: "/home/harish/Documents/network-automation/scripts/MAC_generate_traffic.py"
+
+# --- Interface ---
 traffic_interface: enp2s0
+
+# --- Layer 2 / MAC Settings ---
+mac_aging_time: 50
+
+# --- VLAN Settings (for future VLAN test cases) ---
+# default_vlan: 1
+# test_vlan_id: 100
+# test_vlan_name: "TEST_VLAN"
+
+# --- STP Settings (for future STP test cases) ---
+# stp_mode: rapid-pvst
+
+# --- Management Settings (for future Management test cases) ---
+# snmp_community: public
+# snmp_version: 2c
+# ntp_server: 192.168.1.1
+# syslog_server: 192.168.1.2

@@ -20,7 +20,7 @@ devices:
     connections:
       cli:
         protocol: ssh
-        ip: 192.168.180.152
+        ip: 192.168.180.96
         port: 22
         ssh_options: "-o StrictHostKeyChecking=no"
         arguments:
