@@ -124,22 +124,40 @@ pipeline {
         }
 
         // -----------------------------------------------------------
-        // STAGE 5 — Collect Reports
+        // STAGE 5 — Collect Reports + Generate Dashboard
         // -----------------------------------------------------------
         stage('Collect Reports') {
             steps {
-                echo '=== Collecting reports ==='
+                echo '=== Collecting reports and generating dashboard ==='
                 sh '''
                     mkdir -p ${REPORT_DIR}
                     [ -f /tmp/mac_expiry_test_report.txt ] && \
                         cp /tmp/mac_expiry_test_report.txt ${REPORT_DIR}/ || true
                     [ -f /tmp/mac_table_snapshot.txt ] && \
                         cp /tmp/mac_table_snapshot.txt ${REPORT_DIR}/ || true
+
+                    # Generate HTML dashboard from pyATS log
+                    python3 ${WORKSPACE}/scripts/generate_dashboard.py \
+                        --log  ${REPORT_DIR}/pyats_run.log \
+                        --output ${REPORT_DIR}/dashboard.html \
+                        --device "Hfcl-Switch (192.168.180.96)" \
+                        --module "Layer 2 - MAC Aging" \
+                        --aging  "50 seconds" \
+                        2>&1 || true
+
                     echo "📁 Reports:"
                     ls -la ${REPORT_DIR}/
                 '''
                 archiveArtifacts artifacts: 'reports/**/*',
                                  allowEmptyArchive: true
+                publishHTML(target: [
+                    allowMissing:          true,
+                    alwaysLinkToLastBuild: true,
+                    keepAll:               true,
+                    reportDir:             'reports',
+                    reportFiles:           'dashboard.html',
+                    reportName:            'Test Dashboard'
+                ])
             }
         }
     }
