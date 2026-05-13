@@ -19,7 +19,16 @@ devices:
         ip: 192.168.180.96
         port: 22
         arguments:
-          connection_timeout: 30
+          connection_timeout: 60
           ssh_options: "-o StrictHostKeyChecking=no"
           init_exec_commands:
-            - terminal length 0        # ← disables pagination
+            - terminal length 0
+        settings:
+          EXEC_TIMEOUT: 60
+          GRACEFUL_DISCONNECT_WAIT_SEC: 2
+        login_creds:
+          default:
+            - credential: default
+        prompts:
+          password: "[Pp]assword"
+          generic: "^(.*?)#\\s*$"
