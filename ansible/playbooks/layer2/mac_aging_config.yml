@@ -10,9 +10,9 @@
   hosts: localhost
   gather_facts: false
   vars:
-    switch_ip: "{{ switch_ip }}"             # pulled from group_vars
-    switch_user: "admin"
-    switch_pass: "admin"
+   # switch_ip: "{{ switch_ip }}"             # pulled from group_vars
+   # switch_user: "admin"
+   # switch_pass: "admin"
     mac_aging_time: 50
     traffic_interface: "enp2s0"
     helper_script: "{{ playbook_dir }}/../../../scripts/switch_cmd.py"   # ← relative path

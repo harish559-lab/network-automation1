@@ -36,7 +36,7 @@ from pyats.topology import loader
 # ---------------------------------------------------------------------------
 DEVICE_NAME    = "Hfcl-Switch"
 TRAFFIC_IFACE  = "enp2s0"
-MAC_AGING_TIME = 50        # seconds
+MAC_AGING_TIME = 300        # seconds
 TRAFFIC_SCRIPT = "/home/harish/Documents/network-automation/scripts/MAC_generate_traffic.py"
 
 # MACs injected by generate_traffic.py
@@ -69,7 +69,7 @@ class TC01_VerifyMacAgingConfig(aetest.Testcase):
     def verify_aging_time(self, device):
         """
         Command : show mac address-table aging-time
-        Expected: MAC Age Time: 50
+        Expected: MAC Age Time: 300
         """
         output = device.execute("show mac address-table aging-time")
         log.info(f"Aging-time output:\n{output}")
@@ -102,7 +102,7 @@ class TC02_VerifyMacLearning(aetest.Testcase):
         """Launch Scapy traffic generator."""
         log.info("🚦 Sending bi-directional traffic via Scapy...")
         result = subprocess.run(
-            ["sudo", "python3", TRAFFIC_SCRIPT, "--interface", TRAFFIC_IFACE],
+            ["python3", TRAFFIC_SCRIPT, "--interface", TRAFFIC_IFACE],
             capture_output=True, text=True, timeout=60
         )
         log.info(f"Traffic stdout:\n{result.stdout}")
