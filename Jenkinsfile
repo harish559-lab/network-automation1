@@ -32,20 +32,11 @@ pipeline {
             steps {
                 echo '=== Installing Python dependencies ==='
                 sh '''
-                    # Check what python is available
-                    which python3 || which python || echo "No python found"
-                    python3 --version || python --version || echo "Python not available"
-
-                    # Install pip if not available
-                    apt-get update -qq && apt-get install -y -qq python3-pip || true
-
-                    # Install dependencies using python3 -m pip
-                    python3 -m pip install --quiet paramiko scapy pyats ansible || \
-                    python3 -m pip install --quiet paramiko pyats ansible
-
-                    echo "✅ Dependencies installed"
                     python3 --version
-                    python3 -m ansible --version | head -1 || true
+                    pip3 install paramiko scapy pyats ansible genie \
+                        --break-system-packages --quiet
+                    echo "✅ Dependencies installed"
+                    ansible --version | head -1
                 '''
             }
         }
@@ -58,18 +49,11 @@ pipeline {
                 echo '=== Running Ansible playbook to configure MAC aging-time ==='
                 sh '''
                     mkdir -p ${REPORT_DIR}
-
-                    python3 -m ansible playbook \
-                        -i ${INVENTORY} \
-                        ${PLAYBOOK} \
-                        -v \
-                        2>&1 | tee ${REPORT_DIR}/ansible_run.log || \
                     ansible-playbook \
                         -i ${INVENTORY} \
                         ${PLAYBOOK} \
                         -v \
                         2>&1 | tee ${REPORT_DIR}/ansible_run.log
-
                     echo "✅ Ansible playbook completed"
                 '''
             }
@@ -116,11 +100,9 @@ pipeline {
                 echo '=== Running pyATS test suite ==='
                 sh '''
                     mkdir -p ${REPORT_DIR}
-
                     python3 ${PYATS_TEST} \
                         --testbed ${TESTBED} \
                         2>&1 | tee ${REPORT_DIR}/pyats_run.log
-
                     echo "✅ pyATS validation completed"
                 '''
             }
