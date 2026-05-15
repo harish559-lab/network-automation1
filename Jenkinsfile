@@ -55,6 +55,10 @@ pipeline {
             steps {
                 echo '=== Installing Python dependencies ==='
                 sh '''
+                    #Install python3 and pip if not already present
+                    apt-get update -qq
+                    apt-get install -y -qq python3 python3-pip
+
                     python3 --version
                     pip3 install paramiko scapy pyats ansible genie \
                         --break-system-packages --quiet
