@@ -10,7 +10,7 @@ client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
 try:
-    client.connect(ip, username=user, password=password, timeout=15, look_for_keys=False)
+    client.connect(ip, username=user, password=password, timeout=15, look_for_keys=False, disabled_algorithms={"pubkeys": ["rsa-sha2-256", "rsa-sha2-512"]})
 except Exception as e:
     print(f"[ERROR] SSH connection failed: {e}")
     import sys; sys.exit(1)
