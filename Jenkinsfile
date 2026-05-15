@@ -34,7 +34,7 @@ pipeline {
         INVENTORY      = "${WORKSPACE}/ansible/inventory/hosts.ini"
         PYATS_TEST     = "${WORKSPACE}/pyats/testcases/layer2/test_mac_aging.py"
         REPORT_DIR     = "${WORKSPACE}/reports"
-        LOCAL_MACHINE  = "192.168.180.95"
+        LOCAL_MACHINE  = "192.168.180.153"
         LOCAL_USER     = "harish"
         TRAFFIC_SCRIPT = "/home/harish/Documents/network-automation/scripts/MAC_generate_traffic.py"
         TRAFFIC_IFACE  = "enp2s0"
@@ -188,8 +188,8 @@ pipeline {
                     echo "📁 Reports:"
                     ls -la ${REPORT_DIR}/
                     # Copy dashboard to laptop for direct browser viewing (bypasses Jenkins CSP)
-                    mkdir -p /home/harish/Documents/network-automation/reports || true
-                    cp ${REPORT_DIR}/dashboard.html /home/harish/Documents/network-automation/reports/dashboard.html || true
+                   # mkdir -p /home/harish/Documents/network-automation/reports || true
+                    cp ${REPORT_DIR}/dashboard.html /var/reports/dashboard.html || true
                     echo "✅ Dashboard copied to laptop for viewing"
                 '''
                 archiveArtifacts artifacts: 'reports/**/*',
