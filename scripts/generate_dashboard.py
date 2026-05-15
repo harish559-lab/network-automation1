@@ -1,586 +1,287 @@
-"""
-generate_dashboard.py
-Generates a fully self-contained NETAUTO test dashboard HTML file.
-All CSS, fonts (base64), and JS (Chart.js inline) are embedded — works under Jenkins CSP.
-
-Usage:
-    python generate_dashboard.py --results results.json --output reports/dashboard.html
-
-Or call generate_dashboard(data) directly from your test runner.
-"""
-
-import json
+#!/usr/bin/env python3
+import re
 import argparse
-import datetime
+from datetime import datetime
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Tiny subset of Chart.js v4 replaced by a hand-rolled SVG donut renderer
-# so we have zero external dependencies.
-# ---------------------------------------------------------------------------
+parser = argparse.ArgumentParser()
+parser.add_argument("--log",     required=True)
+parser.add_argument("--ansible", default="")
+parser.add_argument("--output",  required=True)
+parser.add_argument("--device",  default="Hfcl-Switch (192.168.180.164)")
+parser.add_argument("--module",  default="Layer 2 - MAC Aging")
+parser.add_argument("--aging",   default="50 seconds")
+args = parser.parse_args()
 
-HTML_TEMPLATE = """<!DOCTYPE html>
+log_text     = Path(args.log).read_text(errors="ignore")     if Path(args.log).exists()                       else ""
+ansible_text = Path(args.ansible).read_text(errors="ignore") if args.ansible and Path(args.ansible).exists() else ""
+
+TC_DESCRIPTIONS = {
+    "TC01_VerifyMacAgingConfig":        "Verify MAC aging-time is correctly configured on switch",
+    "TC02_VerifyMacLearning":           "Verify MAC entries are learned after bi-directional traffic",
+    "TC03_VerifyMacFlushedAfterExpiry": "Verify dynamic MACs are flushed after aging-time expires",
+    "TC04_VerifyStaticMacsRemain":      "Verify static MAC entries remain after aging-time expires",
+}
+
+def parse_pyats(log):
+    testcases, current_tc = [], None
+    tc_pat   = re.compile(r'\|-- (TC\w+)\s+(PASSED|FAILED|ERRORED|BLOCKED|SKIPPED|ABORTED)')
+    step_pat = re.compile(r'\|   [|`]-- (\w+)\s+(PASSED|FAILED|ERRORED|BLOCKED|SKIPPED|ABORTED)')
+    for line in log.splitlines():
+        tc_m, step_m = tc_pat.search(line), step_pat.search(line)
+        if tc_m:
+            current_tc = {"name": tc_m.group(1), "result": tc_m.group(2),
+                          "description": TC_DESCRIPTIONS.get(tc_m.group(1), tc_m.group(1)),
+                          "steps": [], "source": "pyATS"}
+            testcases.append(current_tc)
+        elif step_m and current_tc:
+            current_tc["steps"].append({"name": step_m.group(1), "result": step_m.group(2)})
+    rate_m = re.search(r'Success Rate\s+([\d.]+)%', log)
+    return testcases, (float(rate_m.group(1)) if rate_m else None)
+
+def parse_ansible(log):
+    testcases = []
+    task_pat   = re.compile(r'TASK \[(.+?)\]')
+    result_pat = re.compile(r'(ok|changed|fatal|failed|FAILED):\s*\[localhost\]')
+    assert_pat = re.compile(r'"msg":\s*"(✅[^"]+)"')
+    ignore_pat = re.compile(r'\.\.\.ignoring')
+    lines, current_task, tc_index, i = log.splitlines(), None, 0, 0
+    while i < len(lines):
+        tm = task_pat.search(lines[i])
+        if tm:
+            current_task = tm.group(1).strip()
+        else:
+            rm = result_pat.search(lines[i])
+            if rm and current_task:
+                raw, look = rm.group(1).lower(), "\n".join(lines[i:i+10])
+                if "fatal" in raw or "failed" in raw:
+                    result = "SKIPPED" if ignore_pat.search(look) else "FAILED"
+                else:
+                    result = "PASSED" if (raw in ("ok","changed") or assert_pat.search(look)) else "ERRORED"
+                tc_index += 1
+                testcases.append({"name": current_task, "result": result,
+                                   "description": "Ansible task result", "steps": [], "source": "Ansible"})
+                current_task = None
+        i += 1
+    seen, unique = set(), []
+    for tc in testcases:
+        if tc["name"] not in seen:
+            seen.add(tc["name"]); unique.append(tc)
+    return unique
+
+testcases, success_rate = parse_pyats(log_text)
+pyats_error = ""
+if not testcases:
+    if "SchemaUnsupportedKeyError" in log_text and "prompts" in log_text:
+        pyats_error = "pyATS testbed schema error: unsupported key 'generic' under connections.cli.prompts."
+    elif log_text.strip():
+        pyats_error = "pyATS produced no parseable test results (check pyats_run.log)."
+    if ansible_text:
+        print("[INFO] Falling back to Ansible log.")
+        testcases = parse_ansible(ansible_text)
+
+counts = {"PASSED":0,"FAILED":0,"ERRORED":0,"BLOCKED":0,"SKIPPED":0}
+for tc in testcases:
+    if tc["result"] in counts: counts[tc["result"]] += 1
+
+total   = len(testcases)
+passed  = counts["PASSED"]
+failed  = counts["FAILED"]
+errored = counts["ERRORED"]
+skipped = counts["BLOCKED"] + counts["SKIPPED"]
+if success_rate is None:
+    success_rate = round(100*passed/total, 1) if total else 0.0
+
+def make_donut(p,f,e,s,tot):
+    if tot == 0:
+        return ('<svg width="200" height="200" viewBox="0 0 200 200">'
+                '<circle cx="100" cy="100" r="72" fill="none" stroke="#1a2d4a" stroke-width="28"/>'
+                '<text x="100" y="107" text-anchor="middle" fill="#4a6080" font-size="14" '
+                'font-family="Courier New,monospace">No data</text></svg>')
+    colors=["#00ff9d","#ff3b5c","#ffd600","#4a6080"]; vals=[p,f,e,s]
+    cx,cy,r,sw=100,100,72,28; circ=2*3.14159265*r; angle=-90; segs=[]
+    for i,val in enumerate(vals):
+        if val==0: continue
+        frac=val/tot; dash=frac*circ; gap=circ-dash
+        segs.append(f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{colors[i]}" '
+                    f'stroke-width="{sw}" stroke-dasharray="{dash:.2f} {gap:.2f}" '
+                    f'stroke-dashoffset="{circ/4:.2f}" transform="rotate({angle} {cx} {cy})"/>')
+        angle+=frac*360
+    pct=int(p/tot*100)
+    return (f'<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">'
+            f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="#0b1120" stroke-width="{sw}"/>'
+            +"".join(segs)
+            +f'<text x="{cx}" y="{cy-8}" text-anchor="middle" fill="#e6edf3" font-size="30" '
+             f'font-weight="700" font-family="Courier New,monospace">{pct}%</text>'
+            +f'<text x="{cx}" y="{cy+16}" text-anchor="middle" fill="#4a6080" font-size="12" '
+             f'font-family="Courier New,monospace">pass rate</text></svg>')
+
+SC={"PASSED":"#00ff9d","FAILED":"#ff3b5c","ERRORED":"#ffd600","BLOCKED":"#4a6080","SKIPPED":"#4a6080"}
+SI={"PASSED":"✓","FAILED":"✗","ERRORED":"⚠","BLOCKED":"◌","SKIPPED":"—"}
+
+def tc_cards(tcs):
+    rows=[]
+    for idx,tc in enumerate(tcs):
+        st=tc["result"].upper(); col=SC.get(st,"#4a6080"); ico=SI.get(st,"?")
+        src=(f'<span style="font-size:0.6rem;background:rgba(0,212,255,0.1);border:1px solid '
+             f'rgba(0,212,255,0.25);padding:2px 7px;border-radius:3px;color:#00d4ff;margin-left:8px">'
+             f'{tc.get("source","")}</span>') if tc.get("source") else ""
+        shtml=""
+        for s in tc["steps"]:
+            sc2=SC.get(s["result"].upper(),"#4a6080"); si2=SI.get(s["result"].upper(),"·")
+            shtml+=(f'<div style="display:flex;align-items:center;gap:10px;padding:7px 0;'
+                    f'border-bottom:1px solid rgba(26,45,74,0.5);font-size:0.78rem">'
+                    f'<span style="color:{sc2};width:16px;text-align:center">{si2}</span>'
+                    f'<span style="font-family:Courier New,monospace;color:#c8d8e8;flex:1">{s["name"]}</span>'
+                    f'<span style="font-family:Courier New,monospace;font-size:0.68rem;color:{sc2}">{s["result"]}</span>'
+                    f'</div>')
+        if not shtml:
+            shtml='<div style="color:#4a6080;font-size:0.75rem;font-family:Courier New,monospace">No sub-steps recorded</div>'
+        rows.append(
+            f'<div class="tc-card" data-status="{st}" style="border-left:4px solid {col}">'
+            f'<div class="tc-header" onclick="toggle({idx})">'
+            f'<span style="color:{col};font-size:1rem;width:20px;text-align:center">{ico}</span>'
+            f'<span class="tc-name">{tc["name"]}{src}</span>'
+            f'<span class="tc-badge" style="color:{col};border-color:{col}40;background:{col}15">{st}</span>'
+            f'<span class="chevron" id="chev-{idx}">▶</span></div>'
+            f'<div class="tc-steps" id="steps-{idx}" style="display:none">'
+            f'<div style="font-family:Courier New,monospace;font-size:0.72rem;color:#4a6080;margin-bottom:10px">{tc["description"]}</div>'
+            f'{shtml}</div></div>')
+    return "\n".join(rows)
+
+error_banner = (
+    f'<div style="background:rgba(255,59,92,0.08);border:1px solid rgba(255,59,92,0.35);'
+    f'border-radius:8px;padding:14px 20px;margin-bottom:24px;'
+    f'font-family:Courier New,monospace;font-size:0.78rem;color:#ff3b5c">⚠ {pyats_error}</div>'
+) if pyats_error else ""
+
+donut   = make_donut(passed,failed,errored,skipped,total)
+tc_html = tc_cards(testcases)
+now     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+HTML = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>NETAUTO Test Dashboard</title>
 <style>
-/* ── Reset ── */
 *,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
-
-/* ── Tokens ── */
-:root{{
-  --bg:#0d1117;
-  --surface:#161b22;
-  --surface2:#21262d;
-  --border:#30363d;
-  --text:#e6edf3;
-  --muted:#8b949e;
-  --pass:#3fb950;
-  --fail:#f85149;
-  --error:#d29922;
-  --skip:#58a6ff;
-  --accent:#58a6ff;
-  --radius:10px;
-  --mono:'Courier New',monospace;
-  --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-}}
-
-body{{
-  background:var(--bg);
-  color:var(--text);
-  font-family:var(--sans);
-  font-size:14px;
-  line-height:1.6;
-  min-height:100vh;
-}}
-
-/* ── Layout ── */
-.shell{{max-width:1100px;margin:0 auto;padding:32px 20px 60px}}
-
-/* ── Header ── */
-.header{{
-  display:flex;align-items:center;gap:16px;
-  border-bottom:1px solid var(--border);
-  padding-bottom:24px;margin-bottom:32px;
-}}
-.logo{{
-  width:44px;height:44px;border-radius:8px;
-  background:linear-gradient(135deg,#1f6feb,var(--accent));
-  display:flex;align-items:center;justify-content:center;
-  font-size:22px;flex-shrink:0;
-}}
-.header-title{{font-size:22px;font-weight:700;letter-spacing:-.5px}}
-.header-sub{{font-size:12px;color:var(--muted);margin-top:2px}}
-.build-badge{{
-  margin-left:auto;
-  background:var(--pass);color:#000;
-  font-size:11px;font-weight:700;letter-spacing:.5px;
-  padding:4px 12px;border-radius:20px;text-transform:uppercase;
-}}
-.build-badge.fail{{background:var(--fail);color:#fff}}
-
-/* ── Metric cards ── */
-.metrics{{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
-  gap:16px;margin-bottom:32px;
-}}
-.metric{{
-  background:var(--surface);border:1px solid var(--border);
-  border-radius:var(--radius);padding:20px 18px;
-  position:relative;overflow:hidden;
-}}
-.metric::before{{
-  content:'';position:absolute;top:0;left:0;right:0;height:3px;
-  background:var(--c,var(--accent));
-}}
-.metric-label{{font-size:11px;font-weight:600;text-transform:uppercase;
-  letter-spacing:.8px;color:var(--muted);margin-bottom:8px}}
-.metric-value{{font-size:36px;font-weight:700;line-height:1;font-family:var(--mono)}}
-.metric-sub{{font-size:11px;color:var(--muted);margin-top:6px}}
-
-/* ── Two-column middle section ── */
-.mid{{display:grid;grid-template-columns:1fr 340px;gap:20px;margin-bottom:32px}}
-@media(max-width:720px){{.mid{{grid-template-columns:1fr}}}}
-
-/* ── Info table ── */
-.card{{
-  background:var(--surface);border:1px solid var(--border);
-  border-radius:var(--radius);overflow:hidden;
-}}
-.card-head{{
-  padding:14px 18px;font-size:12px;font-weight:700;
-  text-transform:uppercase;letter-spacing:.6px;color:var(--muted);
-  border-bottom:1px solid var(--border);background:var(--surface2);
-}}
-.info-table{{width:100%;border-collapse:collapse}}
-.info-table tr+tr td{{border-top:1px solid var(--border)}}
-.info-table td{{padding:10px 18px;font-size:13px}}
-.info-table td:first-child{{color:var(--muted);width:38%;font-size:12px}}
-.info-table td:last-child{{font-family:var(--mono);font-size:12px}}
-
-/* ── Donut chart ── */
-.donut-wrap{{
-  background:var(--surface);border:1px solid var(--border);
-  border-radius:var(--radius);padding:20px;
-  display:flex;flex-direction:column;align-items:center;gap:16px;
-}}
-.donut-wrap svg{{overflow:visible}}
-.donut-legend{{display:flex;flex-wrap:wrap;gap:10px 18px;justify-content:center}}
-.legend-item{{display:flex;align-items:center;gap:6px;font-size:12px}}
-.legend-dot{{width:10px;height:10px;border-radius:50%;flex-shrink:0}}
-
-/* ── Progress bar ── */
-.progress-section{{margin-bottom:32px}}
-.progress-label{{
-  display:flex;justify-content:space-between;
-  font-size:12px;margin-bottom:8px;
-}}
-.progress-track{{
-  height:10px;background:var(--surface2);border-radius:20px;overflow:hidden;
-  border:1px solid var(--border);
-}}
-.progress-fill{{
-  height:100%;border-radius:20px;
-  background:linear-gradient(90deg,#1f6feb,var(--pass));
-  transition:width .8s ease;
-}}
-
-/* ── TC cards ── */
-.tc-section-head{{
-  display:flex;align-items:center;justify-content:space-between;
-  margin-bottom:16px;
-}}
-.tc-section-head h2{{font-size:14px;font-weight:700;text-transform:uppercase;
-  letter-spacing:.6px;color:var(--muted)}}
-.filter-tabs{{display:flex;gap:6px}}
-.ftab{{
-  border:1px solid var(--border);background:transparent;
-  color:var(--muted);font-size:11px;font-weight:600;
-  padding:4px 12px;border-radius:20px;cursor:pointer;
-  text-transform:uppercase;letter-spacing:.4px;
-}}
-.ftab.active,.ftab:hover{{
-  background:var(--accent);color:#000;border-color:var(--accent);
-}}
-.tc-grid{{display:flex;flex-direction:column;gap:12px}}
-
-.tc-card{{
-  background:var(--surface);border:1px solid var(--border);
-  border-radius:var(--radius);overflow:hidden;
-  border-left:4px solid var(--tc-color,var(--border));
-  transition:transform .15s;
-}}
-.tc-card:hover{{transform:translateX(3px)}}
-.tc-header{{
-  display:flex;align-items:center;gap:12px;
-  padding:12px 16px;cursor:pointer;
-}}
-.tc-icon{{
-  width:28px;height:28px;border-radius:6px;flex-shrink:0;
-  background:var(--tc-color);
-  display:flex;align-items:center;justify-content:center;
-  font-size:14px;color:#000;font-weight:700;
-}}
-.tc-name{{font-weight:600;font-size:13px;flex:1}}
-.tc-status-pill{{
-  font-size:10px;font-weight:700;letter-spacing:.6px;
-  padding:3px 10px;border-radius:20px;text-transform:uppercase;
-  background:var(--tc-color);color:#000;
-}}
-.tc-body{{
-  padding:0 16px 14px 16px;
-  border-top:1px solid var(--border);
-  font-size:12px;
-}}
-.tc-desc{{color:var(--muted);margin:10px 0 10px}}
-.steps{{display:flex;flex-direction:column;gap:4px}}
-.step{{
-  display:flex;align-items:center;gap:8px;
-  padding:6px 10px;border-radius:6px;
-  background:var(--surface2);font-family:var(--mono);font-size:11px;
-}}
-.step-icon{{font-size:13px;flex-shrink:0}}
-.step.PASSED{{border-left:3px solid var(--pass)}}
-.step.FAILED{{border-left:3px solid var(--fail)}}
-.step.ERRORED{{border-left:3px solid var(--error)}}
-.step.BLOCKED{{border-left:3px solid var(--muted)}}
-
-.tc-card[data-status="PASSED"]{{--tc-color:var(--pass)}}
-.tc-card[data-status="FAILED"]{{--tc-color:var(--fail)}}
-.tc-card[data-status="ERRORED"]{{--tc-color:var(--error)}}
-.tc-card[data-status="SKIPPED"]{{--tc-color:var(--skip)}}
-
-/* ── Footer ── */
-.footer{{
-  margin-top:48px;border-top:1px solid var(--border);
-  padding-top:16px;text-align:center;
-  font-size:11px;color:var(--muted);
-}}
+:root{{--bg:#060a10;--panel:#0b1120;--border:#1a2d4a;--accent:#00d4ff;--green:#00ff9d;--red:#ff3b5c;--yellow:#ffd600;--text:#c8d8e8;--dim:#4a6080}}
+body{{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;min-height:100vh}}
+body::before{{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,255,0.03) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}}
+.shell{{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:32px 20px 60px}}
+.hdr{{display:flex;align-items:center;justify-content:space-between;margin-bottom:36px;padding-bottom:20px;border-bottom:1px solid var(--border)}}
+.hdr-title{{font-size:1.9rem;font-weight:700;letter-spacing:3px;color:#fff;text-transform:uppercase}}
+.hdr-title span{{color:var(--accent)}}
+.hdr-sub{{font-family:Courier New,monospace;color:var(--dim);font-size:0.72rem;margin-top:4px;letter-spacing:2px}}
+.live{{display:flex;align-items:center;gap:8px;background:rgba(0,255,157,0.08);border:1px solid rgba(0,255,157,0.3);padding:8px 16px;border-radius:4px;font-family:Courier New,monospace;font-size:0.72rem;color:var(--green);letter-spacing:2px}}
+.dot{{width:8px;height:8px;background:var(--green);border-radius:50%;animation:pulse 1.5s infinite}}
+@keyframes pulse{{0%,100%{{opacity:1;box-shadow:0 0 6px var(--green)}}50%{{opacity:.4;box-shadow:none}}}}
+.sec{{font-size:0.85rem;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--accent);margin-bottom:14px;display:flex;align-items:center;gap:10px}}
+.sec::after{{content:'';flex:1;height:1px;background:var(--border)}}
+.meta-grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:28px}}
+.meta-card{{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px 18px}}
+.meta-key{{font-family:Courier New,monospace;font-size:0.62rem;letter-spacing:2px;color:var(--dim);text-transform:uppercase;margin-bottom:5px}}
+.meta-val{{font-family:Courier New,monospace;font-size:0.82rem;color:var(--accent)}}
+.sum-grid{{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:28px}}
+.sum-card{{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:20px 14px;text-align:center;position:relative;overflow:hidden}}
+.sum-card::before{{content:'';position:absolute;top:0;left:0;right:0;height:3px}}
+.c-tot::before{{background:var(--accent)}}.c-pass::before{{background:var(--green)}}.c-fail::before{{background:var(--red)}}.c-err::before{{background:var(--yellow)}}.c-skip::before{{background:var(--dim)}}
+.sum-num{{font-size:2.8rem;font-weight:700;line-height:1;margin-bottom:5px}}
+.c-tot .sum-num{{color:var(--accent)}}.c-pass .sum-num{{color:var(--green)}}.c-fail .sum-num{{color:var(--red)}}.c-err .sum-num{{color:var(--yellow)}}.c-skip .sum-num{{color:var(--dim)}}
+.sum-lbl{{font-family:Courier New,monospace;font-size:0.62rem;letter-spacing:2px;text-transform:uppercase;color:var(--dim)}}
+.mid{{display:grid;grid-template-columns:1fr 240px;gap:20px;margin-bottom:28px;align-items:center}}
+.rate-panel{{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:24px}}
+.rate-lbl{{font-family:Courier New,monospace;font-size:0.7rem;letter-spacing:2px;color:var(--dim);text-transform:uppercase;margin-bottom:12px}}
+.rate-track{{background:rgba(255,255,255,0.05);border-radius:4px;height:14px;overflow:hidden;margin-bottom:12px}}
+.rate-fill{{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--green),var(--accent));box-shadow:0 0 12px rgba(0,255,157,.4);width:0;transition:width 1s ease}}
+.rate-pct{{font-size:2.4rem;font-weight:700;color:var(--green);font-family:Courier New,monospace}}
+.donut-panel{{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:20px;display:flex;flex-direction:column;align-items:center;gap:12px}}
+.donut-legend{{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;width:100%}}
+.leg{{display:flex;align-items:center;gap:6px;font-family:Courier New,monospace;font-size:0.65rem;color:var(--dim)}}
+.leg-dot{{width:8px;height:8px;border-radius:50%;flex-shrink:0}}
+.filter-bar{{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}}
+.fbtn{{font-family:Courier New,monospace;font-size:0.68rem;padding:5px 14px;border-radius:4px;border:1px solid var(--border);background:var(--panel);color:var(--dim);cursor:pointer;letter-spacing:1px}}
+.fbtn:hover,.fbtn.active{{border-color:var(--accent);color:var(--accent);background:rgba(0,212,255,.08)}}
+.tc-card{{background:var(--panel);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:10px;transition:border-color .2s}}
+.tc-card:hover{{border-color:rgba(0,212,255,.4)}}
+.tc-header{{display:flex;align-items:center;gap:14px;padding:14px 18px;cursor:pointer}}
+.tc-name{{font-family:Courier New,monospace;font-size:0.8rem;color:#fff;flex:1}}
+.tc-badge{{font-family:Courier New,monospace;font-size:0.68rem;padding:3px 10px;border-radius:4px;border:1px solid;letter-spacing:1px}}
+.tc-steps{{padding:12px 18px 14px;border-top:1px solid var(--border)}}
+.chevron{{color:var(--dim);font-size:0.65rem;transition:transform .2s;flex-shrink:0}}
+.chevron.open{{transform:rotate(90deg)}}
 </style>
 </head>
 <body>
 <div class="shell">
-
-  <!-- HEADER -->
-  <div class="header">
-    <div class="logo">🧪</div>
-    <div>
-      <div class="header-title">NETAUTO TEST DASHBOARD</div>
-      <div class="header-sub">RUN: {run_time} &nbsp;|&nbsp; Branch: {branch} &nbsp;|&nbsp; Job: {jenkins_job}</div>
-    </div>
-    <div class="build-badge {build_class}">{build_status}</div>
+<div class="hdr">
+  <div>
+    <div class="hdr-title">NET<span>AUTO</span> TEST DASHBOARD</div>
+    <div class="hdr-sub">RUN: {now.upper()} &nbsp;·&nbsp; BRANCH: LAYER2 &nbsp;·&nbsp; JOB: LAYER2-TEST-CASES</div>
   </div>
-
-  <!-- METRIC CARDS -->
-  <div class="metrics">
-    <div class="metric" style="--c:var(--accent)">
-      <div class="metric-label">Total</div>
-      <div class="metric-value">{total}</div>
-      <div class="metric-sub">test cases</div>
-    </div>
-    <div class="metric" style="--c:var(--pass)">
-      <div class="metric-label">Passed</div>
-      <div class="metric-value" style="color:var(--pass)">{passed}</div>
-      <div class="metric-sub">✓ success</div>
-    </div>
-    <div class="metric" style="--c:var(--fail)">
-      <div class="metric-label">Failed</div>
-      <div class="metric-value" style="color:var(--fail)">{failed}</div>
-      <div class="metric-sub">✗ failure</div>
-    </div>
-    <div class="metric" style="--c:var(--error)">
-      <div class="metric-label">Errored</div>
-      <div class="metric-value" style="color:var(--error)">{errored}</div>
-      <div class="metric-sub">⚠ error</div>
-    </div>
-    <div class="metric" style="--c:var(--skip)">
-      <div class="metric-label">Skipped</div>
-      <div class="metric-value" style="color:var(--skip)">{skipped}</div>
-      <div class="metric-sub">— skipped</div>
-    </div>
-    <div class="metric" style="--c:var(--pass)">
-      <div class="metric-label">Success Rate</div>
-      <div class="metric-value" style="color:var(--pass)">{success_rate}%</div>
-      <div class="metric-sub">pass / total</div>
+  <div class="live"><div class="dot"></div>BUILD COMPLETE</div>
+</div>
+{error_banner}
+<div class="sec">Pipeline Info</div>
+<div class="meta-grid">
+  <div class="meta-card"><div class="meta-key">Device</div><div class="meta-val">{args.device}</div></div>
+  <div class="meta-card"><div class="meta-key">Test Module</div><div class="meta-val">{args.module}</div></div>
+  <div class="meta-card"><div class="meta-key">MAC Aging Time</div><div class="meta-val">{args.aging}</div></div>
+  <div class="meta-card"><div class="meta-key">Branch</div><div class="meta-val">layer2</div></div>
+  <div class="meta-card"><div class="meta-key">Jenkins Job</div><div class="meta-val">Layer2-test-cases</div></div>
+  <div class="meta-card"><div class="meta-key">Interface</div><div class="meta-val">enp2s0</div></div>
+</div>
+<div class="sec">Test Summary</div>
+<div class="sum-grid">
+  <div class="sum-card c-tot"><div class="sum-num">{total}</div><div class="sum-lbl">Total</div></div>
+  <div class="sum-card c-pass"><div class="sum-num">{passed}</div><div class="sum-lbl">Passed</div></div>
+  <div class="sum-card c-fail"><div class="sum-num">{failed}</div><div class="sum-lbl">Failed</div></div>
+  <div class="sum-card c-err"><div class="sum-num">{errored}</div><div class="sum-lbl">Errored</div></div>
+  <div class="sum-card c-skip"><div class="sum-num">{skipped}</div><div class="sum-lbl">Skipped</div></div>
+</div>
+<div class="mid">
+  <div class="rate-panel">
+    <div class="rate-lbl">Overall Success Rate</div>
+    <div class="rate-track"><div class="rate-fill" id="rf"></div></div>
+    <div class="rate-pct" id="rp">0%</div>
+  </div>
+  <div class="donut-panel">
+    {donut}
+    <div class="donut-legend">
+      <div class="leg"><div class="leg-dot" style="background:var(--green)"></div>Passed ({passed})</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--red)"></div>Failed ({failed})</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--yellow)"></div>Errored ({errored})</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--dim)"></div>Skipped ({skipped})</div>
     </div>
   </div>
-
-  <!-- MIDDLE: info + donut -->
-  <div class="mid">
-    <div class="card">
-      <div class="card-head">Pipeline Info</div>
-      <table class="info-table">
-        <tr><td>Device</td><td>{device}</td></tr>
-        <tr><td>Test Module</td><td>{test_module}</td></tr>
-        <tr><td>MAC Aging Time</td><td>{mac_aging_time}</td></tr>
-        <tr><td>Interface</td><td>{interface}</td></tr>
-        <tr><td>Jenkins Job</td><td>{jenkins_job}</td></tr>
-        <tr><td>Branch</td><td>{branch}</td></tr>
-      </table>
-    </div>
-
-    <div class="donut-wrap">
-      <div class="card-head" style="width:100%;border-radius:6px 6px 0 0;background:var(--surface2);border:1px solid var(--border);border-bottom:none">Result Breakdown</div>
-      {donut_svg}
-      <div class="donut-legend">
-        <div class="legend-item"><div class="legend-dot" style="background:var(--pass)"></div> Passed ({passed})</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--fail)"></div> Failed ({failed})</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--error)"></div> Errored ({errored})</div>
-        <div class="legend-item"><div class="legend-dot" style="background:var(--skip)"></div> Skipped ({skipped})</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- PROGRESS -->
-  <div class="progress-section">
-    <div class="progress-label">
-      <span>Overall Success Rate</span>
-      <span style="color:var(--pass);font-weight:700">{success_rate}%</span>
-    </div>
-    <div class="progress-track">
-      <div class="progress-fill" style="width:{success_rate}%"></div>
-    </div>
-  </div>
-
-  <!-- TEST CASES -->
-  <div class="tc-section-head">
-    <h2>Test Cases</h2>
-    <div class="filter-tabs">
-      <button class="ftab active" onclick="filter('ALL',this)">ALL</button>
-      <button class="ftab" onclick="filter('PASSED',this)">Passed</button>
-      <button class="ftab" onclick="filter('FAILED',this)">Failed</button>
-      <button class="ftab" onclick="filter('ERRORED',this)">Errored</button>
-      <button class="ftab" onclick="filter('SKIPPED',this)">Skipped</button>
-    </div>
-  </div>
-
-  <div class="tc-grid" id="tcGrid">
-    {tc_cards}
-  </div>
-
-  <div class="footer">
-    Generated by NETAUTO &nbsp;·&nbsp; {run_time}
-  </div>
-
+</div>
+<div class="sec">Test Cases</div>
+<div class="filter-bar">
+  <button class="fbtn active" onclick="filt('ALL',this)">ALL</button>
+  <button class="fbtn" onclick="filt('PASSED',this)">PASSED</button>
+  <button class="fbtn" onclick="filt('FAILED',this)">FAILED</button>
+  <button class="fbtn" onclick="filt('ERRORED',this)">ERRORED</button>
+  <button class="fbtn" onclick="filt('SKIPPED',this)">SKIPPED</button>
+</div>
+<div id="tc-grid">{tc_html}</div>
+<div style="margin-top:40px;border-top:1px solid var(--border);padding-top:14px;text-align:center;font-family:Courier New,monospace;font-size:0.65rem;color:var(--dim)">
+  NETAUTO &nbsp;·&nbsp; Generated {now}
+</div>
 </div>
 <script>
-function filter(status, btn) {{
-  document.querySelectorAll('.ftab').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  document.querySelectorAll('.tc-card').forEach(c => {{
-    c.style.display = (status === 'ALL' || c.dataset.status === status) ? '' : 'none';
-  }});
-}}
-document.querySelectorAll('.tc-header').forEach(h => {{
-  h.addEventListener('click', () => {{
-    const body = h.nextElementSibling;
-    if (body) body.style.display = body.style.display === 'none' ? '' : 'none';
-  }});
-}});
+setTimeout(function(){{
+  document.getElementById('rf').style.width='{success_rate}%';
+  document.getElementById('rp').textContent='{success_rate}%';
+}},400);
+function toggle(i){{var s=document.getElementById('steps-'+i);var c=document.getElementById('chev-'+i);var open=s.style.display==='none';s.style.display=open?'':'none';c.classList.toggle('open',open);}}
+function filt(status,btn){{document.querySelectorAll('.fbtn').forEach(function(b){{b.classList.remove('active')}});btn.classList.add('active');document.querySelectorAll('.tc-card').forEach(function(c){{c.style.display=(status==='ALL'||c.dataset.status===status)?'':'none';}});}}
 </script>
 </body>
-</html>
-"""
+</html>"""
 
-STEP_ICONS = {
-    "PASSED": "✓",
-    "FAILED": "✗",
-    "ERRORED": "⚠",
-    "BLOCKED": "◌",
-    "SKIPPED": "—",
-}
-
-
-def make_donut_svg(passed, failed, errored, skipped, total):
-    """Pure SVG donut — no external library needed."""
-    colors = ["#3fb950", "#f85149", "#d29922", "#58a6ff"]
-    values = [passed, failed, errored, skipped]
-    labels = ["Passed", "Failed", "Errored", "Skipped"]
-
-    if total == 0:
-        # grey empty ring
-        return (
-            '<svg width="180" height="180" viewBox="0 0 180 180">'
-            '<circle cx="90" cy="90" r="70" fill="none" stroke="#30363d" stroke-width="24"/>'
-            '<text x="90" y="96" text-anchor="middle" fill="#8b949e" font-size="14">No data</text>'
-            "</svg>"
-        )
-
-    cx, cy, r, sw = 90, 90, 62, 26
-    circumference = 2 * 3.14159265 * r
-    offset = -3.14159265 / 2 * r * 2  # start at top
-
-    segments = []
-    current_angle = -90  # degrees, start top
-    for i, val in enumerate(values):
-        if val == 0:
-            continue
-        fraction = val / total
-        dash = fraction * circumference
-        gap = circumference - dash
-        # rotate transform
-        rotate = current_angle
-        seg = (
-            f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" '
-            f'stroke="{colors[i]}" stroke-width="{sw}" '
-            f'stroke-dasharray="{dash:.2f} {gap:.2f}" '
-            f'stroke-dashoffset="{circumference/4:.2f}" '  # CSS trick: start at top
-            f'transform="rotate({rotate} {cx} {cy})" '
-            f'stroke-linecap="butt"/>'
-        )
-        segments.append(seg)
-        current_angle += fraction * 360
-
-    # centre text
-    pct = int(passed / total * 100) if total else 0
-    centre = (
-        f'<text x="{cx}" y="{cy - 6}" text-anchor="middle" '
-        f'fill="#e6edf3" font-size="26" font-weight="700" font-family="Courier New,monospace">{pct}%</text>'
-        f'<text x="{cx}" y="{cy + 14}" text-anchor="middle" '
-        f'fill="#8b949e" font-size="11" font-family="sans-serif">pass rate</text>'
-    )
-
-    svg = (
-        f'<svg width="180" height="180" viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg">'
-        f'<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="#21262d" stroke-width="{sw}"/>'
-        + "".join(segments)
-        + centre
-        + "</svg>"
-    )
-    return svg
-
-
-def make_tc_card(tc):
-    name = tc.get("name", "Unknown")
-    status = tc.get("status", "UNKNOWN").upper()
-    description = tc.get("description", "")
-    steps = tc.get("steps", [])
-
-    step_html = ""
-    for step in steps:
-        sname = step.get("name", "")
-        sstatus = step.get("status", "").upper()
-        icon = STEP_ICONS.get(sstatus, "·")
-        step_html += (
-            f'<div class="step {sstatus}">'
-            f'<span class="step-icon">{icon}</span>'
-            f"<span>{sname}</span>"
-            f'<span style="margin-left:auto;color:var(--muted)">{sstatus}</span>'
-            f"</div>"
-        )
-
-    steps_section = f'<div class="steps">{step_html}</div>' if step_html else ""
-    desc_section = f'<div class="tc-desc">{description}</div>' if description else ""
-
-    body_content = desc_section + steps_section
-    body_html = (
-        f'<div class="tc-body">{body_content}</div>'
-        if body_content.strip()
-        else ""
-    )
-
-    icon_char = STEP_ICONS.get(status, "?")
-
-    return f"""
-    <div class="tc-card" data-status="{status}">
-      <div class="tc-header">
-        <div class="tc-icon">{icon_char}</div>
-        <div class="tc-name">{name}</div>
-        <div class="tc-status-pill">{status}</div>
-      </div>
-      {body_html}
-    </div>"""
-
-
-def generate_dashboard(data: dict, output_path: str = "dashboard.html"):
-    """
-    Generate the dashboard HTML from a data dict and write to output_path.
-
-    Expected data structure:
-    {
-      "run_time": "2026-05-15 05:08:47",
-      "build_status": "COMPLETE",
-      "device": "Hfcl-Switch (192.168.180.164)",
-      "test_module": "Layer 2 - MAC Aging",
-      "mac_aging_time": "50 seconds",
-      "branch": "layer2",
-      "jenkins_job": "Layer2-test-cases",
-      "interface": "enp2s0",
-      "test_cases": [
-        {
-          "name": "TC01_VerifyMacAgingConfigpyATS",
-          "status": "PASSED",
-          "description": "Verify MAC aging-time is correctly configured on switch",
-          "steps": [
-            {"name": "verify_aging_time", "status": "PASSED"}
-          ]
-        },
-        ...
-      ]
-    }
-    """
-    tcs = data.get("test_cases", [])
-    total = len(tcs)
-    passed = sum(1 for t in tcs if t.get("status", "").upper() == "PASSED")
-    failed = sum(1 for t in tcs if t.get("status", "").upper() == "FAILED")
-    errored = sum(1 for t in tcs if t.get("status", "").upper() == "ERRORED")
-    skipped = sum(1 for t in tcs if t.get("status", "").upper() == "SKIPPED")
-    success_rate = int(passed / total * 100) if total else 0
-
-    build_status = data.get("build_status", "COMPLETE")
-    build_class = "fail" if build_status.upper() in ("FAILED", "FAIL", "ERROR") else ""
-
-    donut_svg = make_donut_svg(passed, failed, errored, skipped, total)
-    tc_cards = "".join(make_tc_card(t) for t in tcs)
-
-    html = HTML_TEMPLATE.format(
-        run_time=data.get("run_time", datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-        build_status=f"BUILD {build_status}",
-        build_class=build_class,
-        device=data.get("device", "—"),
-        test_module=data.get("test_module", "—"),
-        mac_aging_time=data.get("mac_aging_time", "—"),
-        branch=data.get("branch", "—"),
-        jenkins_job=data.get("jenkins_job", "—"),
-        interface=data.get("interface", "—"),
-        total=total,
-        passed=passed,
-        failed=failed,
-        errored=errored,
-        skipped=skipped,
-        success_rate=success_rate,
-        donut_svg=donut_svg,
-        tc_cards=tc_cards,
-    )
-
-    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    Path(output_path).write_text(html, encoding="utf-8")
-    print(f"Dashboard written → {output_path}")
-    return html
-
-
-# ---------------------------------------------------------------------------
-# CLI entry-point
-# ---------------------------------------------------------------------------
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate NETAUTO test dashboard")
-    parser.add_argument("--results", default=None, help="Path to results JSON file")
-    parser.add_argument("--output", default="reports/dashboard.html", help="Output HTML path")
-    args = parser.parse_args()
-
-    if args.results:
-        with open(args.results) as f:
-            data = json.load(f)
-    else:
-        # ── Demo / sample data so you can run the script standalone ──────────
-        data = {
-            "run_time": "2026-05-15 05:08:47",
-            "build_status": "COMPLETE",
-            "device": "Hfcl-Switch (192.168.180.164)",
-            "test_module": "Layer 2 - MAC Aging",
-            "mac_aging_time": "50 seconds",
-            "branch": "layer2",
-            "jenkins_job": "Layer2-test-cases",
-            "interface": "enp2s0",
-            "test_cases": [
-                {
-                    "name": "TC01_VerifyMacAgingConfigpyATS",
-                    "status": "PASSED",
-                    "description": "Verify MAC aging-time is correctly configured on switch",
-                    "steps": [
-                        {"name": "verify_aging_time", "status": "PASSED"},
-                    ],
-                },
-                {
-                    "name": "TC02_VerifyMacLearningpyATS",
-                    "status": "ERRORED",
-                    "description": "Verify MAC entries are learned after bi-directional traffic",
-                    "steps": [
-                        {"name": "send_bidirectional_traffic", "status": "ERRORED"},
-                        {"name": "verify_src_mac_learned", "status": "BLOCKED"},
-                        {"name": "verify_dst_mac_learned", "status": "BLOCKED"},
-                        {"name": "verify_entries_are_dynamic", "status": "BLOCKED"},
-                    ],
-                },
-                {
-                    "name": "TC03_VerifyMacFlushedAfterExpirypyATS",
-                    "status": "FAILED",
-                    "description": "Verify MAC entries are flushed after aging timer expires",
-                    "steps": [
-                        {"name": "wait_for_aging_timer", "status": "PASSED"},
-                        {"name": "verify_mac_table_empty", "status": "FAILED"},
-                    ],
-                },
-                {
-                    "name": "TC04_VerifyMacRelearningpyATS",
-                    "status": "SKIPPED",
-                    "description": "Verify MAC re-learning after flush",
-                    "steps": [],
-                },
-            ],
-        }
-
-    generate_dashboard(data, args.output)
+Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+Path(args.output).write_text(HTML, encoding="utf-8")
+print(f"Dashboard generated: {args.output}")
+print(f"Total:{total} Passed:{passed} Failed:{failed} Errored:{errored} Skipped:{skipped} Rate:{success_rate}%")
