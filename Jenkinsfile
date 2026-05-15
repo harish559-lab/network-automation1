@@ -188,8 +188,8 @@ pipeline {
                     echo "📁 Reports:"
                     ls -la ${REPORT_DIR}/
                     # Copy dashboard to laptop for direct browser viewing (bypasses Jenkins CSP)
-                    mkdir -p /home/harish/Documents/network-automation/reports
-                    cp ${REPORT_DIR}/dashboard.html /home/harish/Documents/network-automation/reports/dashboard.html
+                    mkdir -p /home/harish/Documents/network-automation/reports || true
+                    cp ${REPORT_DIR}/dashboard.html /home/harish/Documents/network-automation/reports/dashboard.html || true
                     echo "✅ Dashboard copied to laptop for viewing"
                 '''
                 archiveArtifacts artifacts: 'reports/**/*',
