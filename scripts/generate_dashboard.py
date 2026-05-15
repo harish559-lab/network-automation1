@@ -218,7 +218,7 @@ body::before{{content:'';position:fixed;inset:0;background-image:linear-gradient
 <div class="shell">
 <div class="hdr">
   <div>
-    <div class="hdr-title">NET<span>AUTO</span> TEST DASHBOARD</div>
+    <div class="hdr-title">HFCL<span>AUTO</span> TEST DASHBOARD</div>
     <div class="hdr-sub">RUN: {now.upper()} &nbsp;·&nbsp; BRANCH: LAYER2 &nbsp;·&nbsp; JOB: LAYER2-TEST-CASES</div>
   </div>
   <div class="live"><div class="dot"></div>BUILD COMPLETE</div>
