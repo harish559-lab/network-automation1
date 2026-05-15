@@ -5,30 +5,21 @@ devices:
   Hfcl-Switch:
     alias: switch
     type: switch
-    os: generic
-    platform: hfcl
-
+    os: linux          # 'generic' causes KeyError:0 in unicon; use 'linux' for SSH-only devices
+    platform: linux
     credentials:
       default:
         username: admin
         password: admin
-
     connections:
       cli:
+        class: unicon.Unicon
         protocol: ssh
         ip: 192.168.180.164
         port: 22
         arguments:
           connection_timeout: 60
-          ssh_options: "-o StrictHostKeyChecking=no"
-          init_exec_commands:
-            - terminal length 0
+          ssh_options: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
         settings:
           EXEC_TIMEOUT: 60
           GRACEFUL_DISCONNECT_WAIT_SEC: 2
-        login_creds:
-          default:
-            - credential: default
-        prompts:
-          password: "[Pp]assword"
-          generic: "^(.*?)#\\s*$"

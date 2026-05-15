@@ -10,7 +10,7 @@ Usage:
         --log     reports/pyats_run.log \
         --ansible reports/ansible_run.log \
         --output  reports/dashboard.html \
-        --device  "Hfcl-Switch (192.168.180.96)" \
+        --device  "Hfcl-Switch (192.168.180.164)" \
         --module  "Layer 2 - MAC Aging" \
         --aging   "50 seconds"
 """
@@ -27,7 +27,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--log",     required=True,  help="Path to pyATS run log")
 parser.add_argument("--ansible", default="",     help="Path to Ansible run log (fallback source)")
 parser.add_argument("--output",  required=True,  help="Output HTML dashboard path")
-parser.add_argument("--device",  default="Hfcl-Switch (192.168.180.96)")
+parser.add_argument("--device",  default="Hfcl-Switch (192.168.180.164)")
 parser.add_argument("--module",  default="Layer 2 — MAC Aging")
 parser.add_argument("--aging",   default="50 seconds")
 args = parser.parse_args()
