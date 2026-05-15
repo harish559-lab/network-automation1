@@ -164,7 +164,7 @@ HTML = f"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>NETAUTO Test Dashboard</title>
+<title>HFCL Test Dashboard</title>
 <style>
 *,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
 :root{{--bg:#060a10;--panel:#0b1120;--border:#1a2d4a;--accent:#00d4ff;--green:#00ff9d;--red:#ff3b5c;--yellow:#ffd600;--text:#c8d8e8;--dim:#4a6080}}
@@ -218,7 +218,7 @@ body::before{{content:'';position:fixed;inset:0;background-image:linear-gradient
 <div class="shell">
 <div class="hdr">
   <div>
-    <div class="hdr-title">HFCL<span>AUTO</span> TEST DASHBOARD</div>
+    <div class="hdr-title">HFCL<span> TEST</span> DASHBOARD</div>
     <div class="hdr-sub">RUN: {now.upper()} &nbsp;·&nbsp; BRANCH: LAYER2 &nbsp;·&nbsp; JOB: LAYER2-TEST-CASES</div>
   </div>
   <div class="live"><div class="dot"></div>BUILD COMPLETE</div>
