@@ -180,6 +180,15 @@ class TC03_VerifyMacFlushedAfterExpiry(aetest.Testcase):
         After expiry, SRC and DST MACs must NOT appear in MAC table.
         Static entries are expected to remain.
         """
+        # Reconnect — switch drops idle SSH sessions during the long wait
+        try:
+            if not device.is_connected():
+                log.info("🔄 Reconnecting to device after aging wait...")
+                device.connect(log_stdout=True)
+        except Exception:
+            log.info("🔄 Reconnecting to device after aging wait...")
+            device.connect(log_stdout=True)
+
         output = device.execute("show mac address-table")
         log.info(f"📋 MAC table AFTER expiry:\n{output}")
 
