@@ -167,7 +167,7 @@ pipeline {
         stage('Collect Reports') {
             steps {
                 echo '=== Collecting reports and generating dashboard ==='
-                sh '''
+                sh '''	
                     mkdir -p ${REPORT_DIR}
                     [ -f /tmp/mac_expiry_test_report.txt ] && \
                         cp /tmp/mac_expiry_test_report.txt ${REPORT_DIR}/ || true
@@ -187,6 +187,10 @@ pipeline {
 
                     echo "📁 Reports:"
                     ls -la ${REPORT_DIR}/
+                    # Copy dashboard to laptop for direct browser viewing (bypasses Jenkins CSP)
+                    mkdir -p /home/harish/Documents/network-automation/reports
+                    cp ${REPORT_DIR}/dashboard.html /home/harish/Documents/network-automation/reports/dashboard.html
+                    echo "✅ Dashboard copied to laptop for viewing"
                 '''
                 archiveArtifacts artifacts: 'reports/**/*',
                                  allowEmptyArchive: true
