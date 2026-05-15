@@ -34,7 +34,7 @@ pipeline {
         INVENTORY      = "${WORKSPACE}/ansible/inventory/hosts.ini"
         PYATS_TEST     = "${WORKSPACE}/pyats/testcases/layer2/test_mac_aging.py"
         REPORT_DIR     = "${WORKSPACE}/reports"
-        LOCAL_MACHINE  = "192.168.180.153"
+        LOCAL_MACHINE  = "192.168.180.95"
         LOCAL_USER     = "harish"
         TRAFFIC_SCRIPT = "/home/harish/Documents/network-automation/scripts/MAC_generate_traffic.py"
         TRAFFIC_IFACE  = "enp2s0"
