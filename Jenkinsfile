@@ -34,7 +34,7 @@ pipeline {
         INVENTORY      = "${WORKSPACE}/ansible/inventory/hosts.ini"
         PYATS_TEST     = "${WORKSPACE}/pyats/testcases/layer2/test_mac_aging.py"
         REPORT_DIR     = "${WORKSPACE}/reports"
-        LOCAL_MACHINE  = "192.168.180.153"
+        LOCAL_MACHINE  = "192.168.180.142"
         LOCAL_USER     = "harish"
         TRAFFIC_SCRIPT = "/home/harish/Documents/network-automation/scripts/MAC_generate_traffic.py"
         TRAFFIC_IFACE  = "enp2s0"
@@ -99,9 +99,9 @@ pipeline {
         // STAGE 3 — Traffic Generation
         //
         // FIX: SSH auth is failing because the Jenkins container has
-        // no SSH key for harish@192.168.180.95.  Options:
+        // no SSH key for harish@192.168.180.122.  Options:
         //   a) Add Jenkins public key to ~harish/.ssh/authorized_keys
-        //      on 192.168.180.153, OR
+        //      on 192.168.180.142, OR
         //   b) Store credentials in Jenkins and use the sshagent step:
         //        sshagent(['your-credential-id']) { sh 'ssh ...' }
         //
@@ -181,7 +181,7 @@ pipeline {
                         --log     ${REPORT_DIR}/pyats_run.log \
                         --ansible ${REPORT_DIR}/ansible_run.log \
                         --output  ${REPORT_DIR}/dashboard.html \
-                        --device  "Hfcl-Switch (192.168.180.164)" \
+                        --device  "Hfcl-Switch (192.168.180.146)" \
                         --module  "Layer 2 - MAC Aging" \
                         --aging   "50 seconds" || true
 
