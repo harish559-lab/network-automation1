@@ -39,7 +39,7 @@ LAPTOP1_IFACE = "enp2s0"
 
 # Laptop 2 details (connected to Gi 1/2)
 LAPTOP2_USER  = "lab-testing"
-LAPTOP2_IP    = "192.168.180.155"
+LAPTOP2_IP    = "192.168.180.159"
 LAPTOP2_IFACE = "enp44s0"
 
 # Traffic script path (same on both laptops)
