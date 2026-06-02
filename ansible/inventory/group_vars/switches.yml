@@ -9,7 +9,7 @@ ansible_password: admin
 ansible_connection: ssh
 ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
 ansible_python_interpreter: /usr/bin/python3
-switch_ip: "192.168.180.96"
+switch_ip: "192.168.180.146"
 
 # --- Script Paths ---
 helper_script: "/home/harish/Documents/network-automation/scripts/switch_cmd.py"
