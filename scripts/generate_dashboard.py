@@ -396,7 +396,4 @@ Path(args.output).parent.mkdir(parents=True, exist_ok=True)
 Path(args.output).write_text(HTML, encoding="utf-8")
 print(f"Dashboard generated: {args.output}")
 print(f"Total:{total} Passed:{passed} Failed:{failed} Errored:{errored} Skipped:{skipped} Rate:{success_rate}%")
-PYEOF
-Output
-
 
