@@ -73,7 +73,7 @@
           - "{{ switch_ip }}"
           - "{{ switch_user }}"
           - "{{ switch_pass }}"
-          - "show interfaces status"
+          - "show interface * status"
       register: intf_status
       changed_when: true
 
