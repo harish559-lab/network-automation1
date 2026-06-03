@@ -26,7 +26,7 @@ pipeline {
 
         // Laptop 1 (connected to switch Gi 1/1)
         LAPTOP1_USER     = "harish"
-        LAPTOP1_IP       = "192.168.180.142"
+        LAPTOP1_IP       = "192.168.89.62"
         LAPTOP1_IFACE    = "enp2s0"
         AGING_SCRIPT     = "/home/harish/Documents/network-automation/scripts/MAC_generate_traffic.py"
         MOVEMENT_SCRIPT1 = "/home/harish/Documents/network-automation/scripts/MAC_movement_traffic.py"
@@ -38,7 +38,7 @@ pipeline {
         MOVEMENT_SCRIPT2 = "/home/lab-testing/Documents/network-automation/scripts/MAC_movement_traffic.py"
 
         // Switch
-        SWITCH_IP        = "192.168.180.146"
+        SWITCH_IP        = "192.168.89.61"
     }
 
     options {
@@ -195,7 +195,7 @@ pipeline {
                         --ansible   ${REPORT_DIR}/ansible_aging_run.log \
                         --ansible2  ${REPORT_DIR}/ansible_movement_run.log \
                         --output    ${REPORT_DIR}/dashboard.html \
-                        --device    "Hfcl-Switch (192.168.180.146)" \
+                        --device    "Hfcl-Switch (192.168.89.61)" \
                         --module    "Layer 2 - MAC Aging & MAC Movement" \
                         --aging     "50 seconds" || true
 
