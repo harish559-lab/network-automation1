@@ -33,12 +33,18 @@ pipeline {
 
         // Laptop 2 (connected to switch Gi 1/2)
         LAPTOP2_USER     = "lab-testing"
-        LAPTOP2_IP       = "192.168.180.159"
+        LAPTOP2_IP       = "192.168.89.63"
         LAPTOP2_IFACE    = "enp44s0"
         MOVEMENT_SCRIPT2 = "/home/lab-testing/Documents/network-automation/scripts/MAC_movement_traffic.py"
 
         // Switch
         SWITCH_IP        = "192.168.89.61"
+
+        // VLAN Access-to-Access test (uses job.py + shared config,
+        // Cisco-recommended pyATS job invocation)
+        VLAN_AA_PLAYBOOK = "${WORKSPACE}/ansible/playbooks/layer2/vlan_access_access.yml"
+        VLAN_AA_JOB      = "${WORKSPACE}/jobs/layer2/job_vlan_access_access.py"
+        VLAN_AA_CONFIG   = "${WORKSPACE}/config/layer2/vlan_access_access.yaml"
     }
 
     options {
@@ -57,7 +63,7 @@ pipeline {
                 echo '=== Installing Python dependencies ==='
                 sh '''
                     python3 --version
-                    pip3 install paramiko scapy pyats ansible genie \
+                    pip3 install paramiko scapy pyats ansible genie pyyaml \
                         --break-system-packages --quiet
                     echo "✅ Dependencies installed"
                     ansible --version | head -1
@@ -180,7 +186,56 @@ pipeline {
         }
 
         // -----------------------------------------------------------
-        // STAGE 7 — Collect Reports + Generate Dashboard
+        // STAGE 7 — VLAN Access-Access: Configure + Generate Traffic
+        // -----------------------------------------------------------
+        stage('VLAN Access-Access - Configure & Traffic') {
+            steps {
+                echo '=== Running Ansible playbook for VLAN Access-Access ==='
+                sh '''
+                    mkdir -p ${REPORT_DIR}
+                    ansible-playbook \
+                        -i ${INVENTORY} \
+                        ${VLAN_AA_PLAYBOOK} \
+                        -v \
+                        2>&1 | tee ${REPORT_DIR}/ansible_vlan_aa_run.log || true
+                    echo "✅ VLAN Access-Access playbook completed"
+                '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'reports/ansible_vlan_aa_run.log',
+                                     allowEmptyArchive: true
+                }
+            }
+        }
+
+        // -----------------------------------------------------------
+        // STAGE 8 — VLAN Access-Access: Validate with pyATS
+        // -----------------------------------------------------------
+        // Cisco-recommended invocation: `pyats run job`, not the
+        // testscript directly. job.py wires in the testbed + the
+        // shared config file (Phase 4).
+        // -----------------------------------------------------------
+        stage('VLAN Access-Access - Validate with pyATS') {
+            steps {
+                echo '=== Running VLAN Access-Access pyATS job ==='
+                sh '''
+                    mkdir -p ${REPORT_DIR}
+                    pyats run job ${VLAN_AA_JOB} \
+                        2>&1 | tee ${REPORT_DIR}/pyats_vlan_aa_run.log || true
+                    echo "✅ VLAN Access-Access pyATS validation completed"
+                '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'reports/pyats_vlan_aa_run.log',
+                                     allowEmptyArchive: true
+                }
+            }
+        }
+
+        // -----------------------------------------------------------
+        // STAGE 9 — Collect Reports + Generate Dashboard
         // -----------------------------------------------------------
         stage('Collect Reports') {
             steps {
@@ -188,16 +243,24 @@ pipeline {
                 sh '''
                     mkdir -p ${REPORT_DIR}
 
-                    # Generate HTML dashboard with both test modules
+                    # Phase 3 structured summary -- copy from /tmp into the
+                    # report dir so it gets archived alongside the dashboard
+                    cp /tmp/vlan_access_access_result.json \
+                        ${REPORT_DIR}/vlan_access_access_result.json || true
+
+                    # Generate HTML dashboard with all test modules
                     python3 ${WORKSPACE}/scripts/generate_dashboard.py \
-                        --log       ${REPORT_DIR}/pyats_aging_run.log \
-                        --log2      ${REPORT_DIR}/pyats_movement_run.log \
-                        --ansible   ${REPORT_DIR}/ansible_aging_run.log \
-                        --ansible2  ${REPORT_DIR}/ansible_movement_run.log \
-                        --output    ${REPORT_DIR}/dashboard.html \
-                        --device    "Hfcl-Switch (192.168.89.61)" \
-                        --module    "Layer 2 - MAC Aging & MAC Movement" \
-                        --aging     "50 seconds" || true
+                        --log         ${REPORT_DIR}/pyats_aging_run.log \
+                        --log2        ${REPORT_DIR}/pyats_movement_run.log \
+                        --log3        ${REPORT_DIR}/pyats_vlan_aa_run.log \
+                        --ansible     ${REPORT_DIR}/ansible_aging_run.log \
+                        --ansible2    ${REPORT_DIR}/ansible_movement_run.log \
+                        --ansible3    ${REPORT_DIR}/ansible_vlan_aa_run.log \
+                        --result-json ${REPORT_DIR}/vlan_access_access_result.json \
+                        --output      ${REPORT_DIR}/dashboard.html \
+                        --device      "Hfcl-Switch (192.168.89.61)" \
+                        --module      "Layer 2 - MAC Aging, MAC Movement & VLAN Access-Access" \
+                        --aging       "50 seconds" || true
 
                     echo "📁 Reports:"
                     ls -la ${REPORT_DIR}/

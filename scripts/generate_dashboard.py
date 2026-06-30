@@ -7,6 +7,7 @@ and generates a combined HTML dashboard.
 """
 
 import re
+import json
 import argparse
 from datetime import datetime
 from pathlib import Path
@@ -15,8 +16,11 @@ from pathlib import Path
 parser = argparse.ArgumentParser()
 parser.add_argument("--log",      required=True,  help="pyATS log for MAC Aging")
 parser.add_argument("--log2",     default="",     help="pyATS log for MAC Movement")
+parser.add_argument("--log3",     default="",     help="pyATS log for VLAN Access-Access")
 parser.add_argument("--ansible",  default="",     help="Ansible log for MAC Aging")
 parser.add_argument("--ansible2", default="",     help="Ansible log for MAC Movement")
+parser.add_argument("--ansible3", default="",     help="Ansible log for VLAN Access-Access")
+parser.add_argument("--result-json", default="",  help="Phase 3 structured summary (VLAN Access-Access)")
 parser.add_argument("--output",   required=True,  help="Output HTML dashboard path")
 parser.add_argument("--device",   default="Hfcl-Switch (192.168.180.146)")
 parser.add_argument("--module",   default="Layer 2 - MAC Aging & MAC Movement")
@@ -29,8 +33,21 @@ def read_file(path):
 
 log_aging    = read_file(args.log)
 log_movement = read_file(args.log2)
+log_vlan_aa  = read_file(args.log3)
 ansible_aging    = read_file(args.ansible)
 ansible_movement = read_file(args.ansible2)
+ansible_vlan_aa  = read_file(args.ansible3)
+
+def read_json(path):
+    p = Path(path)
+    if path and p.exists():
+        try:
+            return json.loads(p.read_text(errors="ignore"))
+        except (json.JSONDecodeError, OSError):
+            return None
+    return None
+
+vlan_result = read_json(args.result_json)
 
 TC_DESCRIPTIONS = {
     # MAC Aging
@@ -43,6 +60,13 @@ TC_DESCRIPTIONS = {
     "TC02_VerifyMacMovesToPort2":       "Verify MAC moves to Port 2 (Gi 1/2) after traffic from Laptop 2",
     "TC03_VerifyOldPortEntryRemoved":   "Verify old port entry is removed after MAC movement",
     "TC04_VerifyDynamicAfterMovement":  "Verify MAC entry type is Dynamic after movement",
+    # VLAN Access-Access
+    "TC01_Verify_VLAN":                 "Verify VLAN exists on the switch",
+    "TC02_Verify_Interface_Config":     "Verify access port mode, VLAN assignment, and admin status",
+    "TC03_Verify_Link_Status":          "Verify both access interfaces are operationally up",
+    "TC04_Verify_MAC_Table":            "Verify dynamic MAC learning on both access ports",
+    "TC05_Verify_Interface_Counters":   "Verify interface traffic counters incremented",
+    "TC06_Verify_Traffic":              "Verify sender/receiver packet counts, loss %, and MAC visibility",
 }
 
 def parse_pyats(log, source_label):
@@ -112,8 +136,14 @@ if not movement_tcs and ansible_movement:
     print("[INFO] MAC Movement: falling back to Ansible log.")
     movement_tcs = parse_ansible(ansible_movement, "MAC Movement")
 
+# Parse VLAN Access-Access results
+vlan_aa_tcs, vlan_aa_rate = parse_pyats(log_vlan_aa, "VLAN Access-Access")
+if not vlan_aa_tcs and ansible_vlan_aa:
+    print("[INFO] VLAN Access-Access: falling back to Ansible log.")
+    vlan_aa_tcs = parse_ansible(ansible_vlan_aa, "VLAN Access-Access")
+
 # Combined
-all_tcs = aging_tcs + movement_tcs
+all_tcs = aging_tcs + movement_tcs + vlan_aa_tcs
 total   = len(all_tcs)
 
 counts = {"PASSED":0,"FAILED":0,"ERRORED":0,"BLOCKED":0,"SKIPPED":0}
@@ -128,6 +158,14 @@ success_rate = round(100 * passed / total, 1) if total else 0.0
 
 SC = {"PASSED":"#00ff9d","FAILED":"#ff3b5c","ERRORED":"#ffd600","BLOCKED":"#4a6080","SKIPPED":"#4a6080"}
 SI = {"PASSED":"✓","FAILED":"✗","ERRORED":"⚠","BLOCKED":"◌","SKIPPED":"—"}
+
+# Per-module badge colors. Falls back to a stable hash-based color
+# for any future module instead of mislabeling it.
+MODULE_COLORS = {
+    "MAC Aging": "#00d4ff",
+    "MAC Movement": "#ff9d00",
+    "VLAN Access-Access": "#b18cff",
+}
 
 def make_donut(p, f, e, s, tot):
     if tot == 0:
@@ -171,7 +209,7 @@ def tc_cards(tcs):
         ico = SI.get(st, "?")
 
         # Source badge color
-        badge_col = "#00d4ff" if tc.get("source") == "MAC Aging" else "#ff9d00"
+        badge_col = MODULE_COLORS.get(tc.get("source"), "#4a6080")
         src = (
             f'<span style="font-size:0.6rem;background:rgba(0,212,255,0.1);border:1px solid '
             f'rgba(0,212,255,0.25);padding:2px 7px;border-radius:3px;color:{badge_col};margin-left:8px">'
@@ -234,6 +272,63 @@ now     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 donut   = make_donut(passed, failed, errored, skipped, total)
 tc_html = tc_cards(all_tcs)
 
+# Phase 3: Traffic Metrics table, built from the structured summary
+# TC06 writes (vlan_access_access_result.json), not from log scraping.
+def traffic_metrics_table(result):
+    if not result:
+        return (
+            '<div style="font-family:Courier New,monospace;font-size:0.75rem;'
+            'color:#4a6080;padding:16px 0">No traffic metrics available '
+            '(--result-json not provided or file missing).</div>'
+        )
+
+    status = result.get("status", "UNKNOWN")
+    col    = SC.get(status, "#4a6080")
+
+    cols = [
+        ("Test Name",        result.get("test_name", "-")),
+        ("VLAN",             result.get("vlan", "-")),
+        ("Ports",            result.get("ports", "-")),
+        ("Packets Sent",     result.get("packets_sent", "-")),
+        ("Packets Received", result.get("packets_received", "-")),
+        ("Packet Loss %",    f'{result.get("packet_loss_percent", "-")}%'),
+        ("MAC Learned",      "Yes" if result.get("mac_learned") else "No"),
+        ("Execution Time",   f'{result.get("execution_time_seconds", "-")}s'),
+        ("Result",           status),
+    ]
+
+    cells = ""
+    for label, val in cols:
+        val_col = col if label == "Result" else "#c8d8e8"
+        cells += (
+            f'<div style="flex:1;min-width:110px;padding:12px 10px">'
+            f'<div style="font-family:Courier New,monospace;font-size:0.6rem;'
+            f'letter-spacing:1px;text-transform:uppercase;color:#4a6080;margin-bottom:5px">{label}</div>'
+            f'<div style="font-family:Courier New,monospace;font-size:0.85rem;'
+            f'color:{val_col};font-weight:700">{val}</div>'
+            f'</div>'
+        )
+
+    errors_html = ""
+    errs = result.get("errors") or []
+    if errs:
+        items = "".join(f'<li style="margin-bottom:4px">{e}</li>' for e in errs)
+        errors_html = (
+            f'<div style="margin-top:10px;padding:10px 14px;background:rgba(255,59,92,0.08);'
+            f'border:1px solid rgba(255,59,92,0.3);border-radius:6px;font-family:Courier New,monospace;'
+            f'font-size:0.72rem;color:#ff3b5c"><ul style="margin-left:18px">{items}</ul></div>'
+        )
+
+    return (
+        f'<div style="background:var(--panel);border:1px solid var(--border);border-left:4px solid {col};'
+        f'border-radius:8px;padding:6px 8px">'
+        f'<div style="display:flex;flex-wrap:wrap">{cells}</div>'
+        f'{errors_html}'
+        f'</div>'
+    )
+
+traffic_metrics = traffic_metrics_table(vlan_result)
+
 HTML = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -259,7 +354,7 @@ body::before{{content:'';position:fixed;inset:0;background-image:linear-gradient
 .meta-card{{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px 18px}}
 .meta-key{{font-family:Courier New,monospace;font-size:0.62rem;letter-spacing:2px;color:var(--dim);text-transform:uppercase;margin-bottom:5px}}
 .meta-val{{font-family:Courier New,monospace;font-size:0.82rem;color:var(--accent)}}
-.module-grid{{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px}}
+.module-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:28px}}
 .module-card{{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:18px 20px}}
 .module-title{{font-family:Courier New,monospace;font-size:0.85rem;color:#fff;font-weight:700;margin-bottom:12px;letter-spacing:1px}}
 .module-stats{{display:flex;gap:16px;flex-wrap:wrap;font-family:Courier New,monospace;font-size:0.75rem}}
@@ -317,7 +412,11 @@ body::before{{content:'';position:fixed;inset:0;background-image:linear-gradient
   <div class="module-grid">
     {module_summary(aging_tcs, "🔁 MAC Aging")}
     {module_summary(movement_tcs, "↔️  MAC Movement")}
+    {module_summary(vlan_aa_tcs, "🔌 VLAN Access-Access")}
   </div>
+
+  <div class="sec">VLAN Access-Access Traffic Metrics</div>
+  {traffic_metrics}
 
   <div class="sec">Overall Summary</div>
   <div class="sum-grid">
@@ -353,6 +452,7 @@ body::before{{content:'';position:fixed;inset:0;background-image:linear-gradient
     <button class="fbtn" onclick="filt('ERRORED',this)">ERRORED</button>
     <button class="fbtn" onclick="filtModule('MAC Aging',this)">MAC AGING</button>
     <button class="fbtn" onclick="filtModule('MAC Movement',this)">MAC MOVEMENT</button>
+    <button class="fbtn" onclick="filtModule('VLAN Access-Access',this)">VLAN ACCESS-ACCESS</button>
   </div>
   <div id="tc-grid">{tc_html}</div>
 
@@ -396,4 +496,3 @@ Path(args.output).parent.mkdir(parents=True, exist_ok=True)
 Path(args.output).write_text(HTML, encoding="utf-8")
 print(f"Dashboard generated: {args.output}")
 print(f"Total:{total} Passed:{passed} Failed:{failed} Errored:{errored} Skipped:{skipped} Rate:{success_rate}%")
-

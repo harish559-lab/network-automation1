@@ -1,0 +1,47 @@
+---
+# =============================================================
+# Config   : vlan_access_access.yaml
+# Purpose  : Single source of truth for the Access-to-Access
+#            VLAN testcase. Both the Ansible playbook and the
+#            pyATS testscript read this same file, so port
+#            numbers, hosts, VLAN ID, etc. only ever live in
+#            one place.
+# =============================================================
+
+# ---------------------------------------------------------
+# Switch Details
+# ---------------------------------------------------------
+switch_name: HFCL
+switch_ip: 192.168.89.61
+switch_user: admin
+switch_pass: admin
+
+# ---------------------------------------------------------
+# VLAN Details
+# ---------------------------------------------------------
+vlan_id: 100
+vlan_name: TEST_VLAN
+
+# ---------------------------------------------------------
+# Interface Details
+# ---------------------------------------------------------
+access_port1: "Gigabitethernet 1/1"
+access_port2: "Gigabitethernet 1/2"
+
+# ---------------------------------------------------------
+# Traffic Hosts (Linux machines generating / receiving traffic)
+# ---------------------------------------------------------
+sender_host: harish@192.168.89.62
+receiver_host: harish@192.168.89.63
+
+traffic_interface: enp2s0
+traffic_timeout: 20
+packet_count: 1000
+packet_interval: 0.01
+
+# ---------------------------------------------------------
+# Report Paths
+# ---------------------------------------------------------
+sender_report: /tmp/sender_report.json
+receiver_report: /tmp/receiver_report.json
+execution_report: /tmp/vlan_access_access_report.txt

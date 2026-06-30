@@ -1,0 +1,376 @@
+---
+# =============================================================
+# Playbook : vlan_access_access.yml
+# Purpose  : Configure Access-to-Access VLAN and Generate Traffic
+# Device   : HFCL Switch
+#
+# Workflow:
+#   Step 1 : Create VLAN
+#   Step 2 : Configure Access Ports
+#   Step 3 : Verify Configuration (Collect Logs)
+#   Step 4 : Generate Untagged Traffic
+#   Step 5 : Capture MAC Table
+#   Step 6 : Save Report
+#
+# NOTE:
+# This playbook ONLY performs configuration and log collection.
+# Validation (PASS/FAIL) is handled separately by pyATS.
+# =============================================================
+
+- name: "Access Port to Access Port VLAN Configuration"
+  hosts: localhost
+  gather_facts: false
+
+  # ---------------------------------------------------------
+  # Phase 4: Single source of truth, shared with pyATS.
+  # switch_ip/user/pass, vlan_id/name, access_port1/2,
+  # sender_host/receiver_host, traffic_interface/timeout,
+  # packet_count/interval and the report paths all come from
+  # here now -- nothing below redefines them.
+  # ---------------------------------------------------------
+  vars_files:
+    - "{{ playbook_dir }}/../../../config/layer2/vlan_access_access.yaml"
+
+  vars:
+
+    # ---------------------------------------------------------
+    # Local Scripts (paths only -- not shared with pyATS)
+    # ---------------------------------------------------------
+    helper_script: "{{ playbook_dir }}/../../../scripts/switch_cmd.py"
+
+    sender_script: "{{ playbook_dir }}/../../../scripts/traffic_sender.py"
+
+    receiver_script: "{{ playbook_dir }}/../../../scripts/traffic_receiver.py"
+
+    report_path: "{{ execution_report }}"
+
+  tasks:
+
+  # ==========================================================
+  # STEP 1 : Create VLAN
+  # ==========================================================
+
+  - name: "STEP 1 | Create VLAN {{ vlan_id }}"
+    command: >
+      python3 {{ helper_script }}
+      {{ switch_ip }}
+      {{ switch_user }}
+      {{ switch_pass }}
+      "configure terminal"
+      "vlan {{ vlan_id }}"
+      "name {{ vlan_name }}"
+      "end"
+    register: vlan_config
+
+  - name: "STEP 1 | Display CLI Output"
+    debug:
+      var: vlan_config.stdout_lines
+
+  # ==========================================================
+  # STEP 2 : Configure Access Port 1
+  # ==========================================================
+
+  - name: "STEP 2 | Configure {{ access_port1 }}"
+    command: >
+      python3 {{ helper_script }}
+      {{ switch_ip }}
+      {{ switch_user }}
+      {{ switch_pass }}
+      "configure terminal"
+      "interface {{ access_port1 }}"
+      "switchport mode access"
+      "switchport access vlan {{ vlan_id }}"
+      "no shutdown"
+      "exit"
+    register: port1_config
+
+  - debug:
+      var: port1_config.stdout_lines
+
+  # ==========================================================
+  # STEP 3 : Configure Access Port 2
+  # ==========================================================
+
+  - name: "STEP 3 | Configure {{ access_port2 }}"
+    command: >
+      python3 {{ helper_script }}
+      {{ switch_ip }}
+      {{ switch_user }}
+      {{ switch_pass }}
+      "configure terminal"
+      "interface {{ access_port2 }}"
+      "switchport mode access"
+      "switchport access vlan {{ vlan_id }}"
+      "no shutdown"
+      "end"
+    register: port2_config
+
+  - debug:
+      var: port2_config.stdout_lines
+
+  # ==========================================================
+  # STEP 4 : Save Running Configuration
+  # ==========================================================
+
+  - name: "STEP 4 | Save Configuration"
+    command: >
+      python3 {{ helper_script }}
+      {{ switch_ip }}
+      {{ switch_user }}
+      {{ switch_pass }}
+      "copy running-config startup-config"
+    register: save_config
+
+  - debug:
+      var: save_config.stdout_lines
+
+  # ==========================================================
+  # STEP 5 : Collect VLAN Information
+  # ==========================================================
+
+  - name: "STEP 5 | Collect VLAN Information"
+    command: >
+      python3 {{ helper_script }}
+      {{ switch_ip }}
+      {{ switch_user }}
+      {{ switch_pass }}
+      "show vlan brief"
+    register: vlan_output
+
+  - debug:
+      var: vlan_output.stdout_lines
+
+  # ==========================================================
+  # STEP 6 : Collect Interface Configuration
+  # ==========================================================
+
+  - name: "STEP 6 | Collect Interface {{ access_port1 }}"
+    command: >
+      python3 {{ helper_script }}
+      {{ switch_ip }}
+      {{ switch_user }}
+      {{ switch_pass }}
+      "show running-config interface {{ access_port1 }}"
+    register: port1_verify
+
+  - debug:
+      var: port1_verify.stdout_lines
+
+  - name: "STEP 6 | Collect Interface {{ access_port2 }}"
+    command: >
+      python3 {{ helper_script }}
+      {{ switch_ip }}
+      {{ switch_user }}
+      {{ switch_pass }}
+      "show running-config interface {{ access_port2 }}"
+    register: port2_verify
+
+  - debug:
+      var: port2_verify.stdout_lines
+
+  # ==========================================================
+  # STEP 7 : Collect Interface Status
+  # ==========================================================
+
+  - name: "STEP 7 | Collect Interface Status"
+    command: >
+      python3 {{ helper_script }}
+      {{ switch_ip }}
+      {{ switch_user }}
+      {{ switch_pass }}
+      "show interface Gigabitethernet * status"
+    register: interface_status
+
+  - debug:
+      var: interface_status.stdout_lines
+
+  # ==========================================================
+  # STEP 8 : Start Receiver
+  # ==========================================================
+
+##  - name: "STEP 8 | Generate Untagged Traffic"
+##    command: >
+##      ssh -o StrictHostKeyChecking=no
+##      {{ traffic_host }}
+##      "sudo python3 {{ traffic_script }}
+##      --interface {{ traffic_interface }}"
+##    register: traffic_output
+##    ignore_errors: true
+
+##  - debug:
+##      var: traffic_output.stdout_lines
+
+  - name: "STEP 8 | Start Receiver"
+    command: >
+
+      ssh -o StrictHostKeyChecking=no
+      {{ receiver_host }}
+      "nohup sudo python3 {{ receiver_script }}
+      --interface {{ traffic_interface }}
+      --timeout {{ traffic_timeout }}
+      --report {{ receiver_report }}
+      >/tmp/receiver.log 2>&1 &"
+
+  # ==========================================================
+  #  STEP 8.1 : Wait
+  # ==========================================================
+  - name: Wait Receiver Startup
+    wait_for:
+      timeout: 2
+
+  # ==========================================================
+  #  STEP 8.2 : Send Untagged traffic
+  # ==========================================================
+  - name: "STEP 8.2 | Send Untagged Traffic"
+    command: >
+
+      ssh -o StrictHostKeyChecking=no
+      {{ sender_host }}
+      "sudo python3 {{ sender_script }}
+      --interface {{ traffic_interface }}
+      --count {{ packet_count }}
+      --interval {{ packet_interval }}
+      --report {{ sender_report }}"
+    register: sender_output
+
+  # ==========================================================
+  # STEP 8.3 : Wait Receiver Completion
+  # ==========================================================
+
+  - name: Wait Receiver Finish
+    wait_for:
+      timeout: "{{ traffic_timeout + 2 }}"
+
+  # ==========================================================
+  # Receiver Report
+  # ==========================================================
+  - name: Copy Receiver Report
+    command: >
+
+      scp
+      {{ receiver_host }}:{{ receiver_report }}
+      /tmp/
+
+  # ==========================================================
+  # Sender Report
+  # ==========================================================
+  - name: Copy Sender Report
+    command: >
+
+      scp
+      {{ sender_host }}:{{ sender_report }}
+      /tmp/
+
+  # ==========================================================
+  # STEP 9 : Wait for MAC Learning
+  # ==========================================================
+
+  - name: "STEP 9 | Wait 5 Seconds"
+    wait_for:
+      timeout: 5
+
+  # ==========================================================
+  # STEP 10 : Collect MAC Table
+  # ==========================================================
+
+  - name: "STEP 10 | Collect MAC Address Table"
+    command: >
+      python3 {{ helper_script }}
+      {{ switch_ip }}
+      {{ switch_user }}
+      {{ switch_pass }}
+      "show mac address-table vlan {{ vlan_id }}"
+    register: mac_table
+
+  - debug:
+      var: mac_table.stdout_lines
+
+  # ==========================================================
+  # STEP 11 : Collect Interface Counters
+  # ==========================================================
+
+  - name: "STEP 11 | Collect Interface Counters"
+    command: >
+      python3 {{ helper_script }}
+      {{ switch_ip }}
+      {{ switch_user }}
+      {{ switch_pass }}
+      "show interface * statistics"
+    register: interface_counters
+
+  - debug:
+      var: interface_counters.stdout_lines
+
+  # ==========================================================
+  # STEP 12 : Generate Report
+  # ==========================================================
+
+  - name: "STEP 12 | Save Execution Report"
+    copy:
+      dest: "{{ report_path }}"
+      content: |
+
+        ======================================================
+               VLAN ACCESS TO ACCESS CONFIGURATION REPORT
+        ======================================================
+
+        Device      : {{ switch_ip }}
+        VLAN ID     : {{ vlan_id }}
+        VLAN Name   : {{ vlan_name }}
+
+        Access Port 1 : {{ access_port1 }}
+        Access Port 2 : {{ access_port2 }}
+
+        ======================================================
+        VLAN INFORMATION
+        ======================================================
+
+        {{ vlan_output.stdout }}
+
+        ======================================================
+        PORT 1 CONFIGURATION
+        ======================================================
+
+        {{ port1_verify.stdout }}
+
+        ======================================================
+        PORT 2 CONFIGURATION
+        ======================================================
+
+        {{ port2_verify.stdout }}
+
+        ======================================================
+        INTERFACE STATUS
+        ======================================================
+
+        {{ interface_status.stdout }}
+
+        ======================================================
+        MAC ADDRESS TABLE
+        ======================================================
+
+        {{ mac_table.stdout }}
+
+        ======================================================
+        INTERFACE COUNTERS
+        ======================================================
+
+        {{ interface_counters.stdout }}
+
+        ======================================================
+        Sender Script Output
+        ======================================================
+
+        {{ sender_output.stdout | default('See /tmp/sender_report.json and /tmp/receiver_report.json for full traffic validation data.') }}
+
+        ======================================================
+        NOTE
+        ======================================================
+
+        This report contains execution logs only.
+
+        Validation is performed separately by pyATS.
+
+  - name: "STEP 12 | Completed"
+    debug:
+      msg: "VLAN Access-to-Access configuration completed. Report saved at {{ report_path }}"
