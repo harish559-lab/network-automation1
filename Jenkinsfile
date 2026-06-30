@@ -43,7 +43,7 @@ pipeline {
         // VLAN Access-to-Access test (uses job.py + shared config,
         // Cisco-recommended pyATS job invocation)
         VLAN_AA_PLAYBOOK = "${WORKSPACE}/ansible/playbooks/layer2/vlan_access_access.yml"
-        VLAN_AA_JOB      = "${WORKSPACE}/jobs/layer2/job_vlan_access_access.py"
+        VLAN_AA_JOB      = "${WORKSPACE}/pyats/jobs/layer2/job_vlan_access_access.py"
         VLAN_AA_CONFIG   = "${WORKSPACE}/config/layer2/vlan_access_access.yaml"
     }
 
