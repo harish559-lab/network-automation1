@@ -71,7 +71,7 @@ log = logging.getLogger(__name__)
 # ----------------------------------------------------------------------
 SWITCH = "HFCL"
 
-VLAN_ID = "100"
+VLAN_ID = "1"
 
 PORT1 = "Gigabitethernet 1/1"
 
