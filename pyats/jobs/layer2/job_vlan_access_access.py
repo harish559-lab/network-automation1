@@ -25,6 +25,7 @@ Author : Harish
 import os
 
 from pyats.easypy import run
+from genie.testbed import load as load_testbed
 
 
 # ----------------------------------------------------------------------
@@ -52,9 +53,15 @@ CONFIG_FILE = os.path.join(
 
 def main(runtime):
 
+    # Load the testbed explicitly so pyATS easypy injects it correctly
+    # into the testbed parameter of CommonSetup.connect_to_device.
+    # Passing a raw string path to run(testbed=...) does NOT work the
+    # same as --testbed-file on the CLI -- it bypasses the loader.
+    testbed = load_testbed(TESTBED)
+
     run(
         testscript=TESTSCRIPT,
-        testbed=TESTBED,
+        testbed=testbed,
         runtime=runtime,
         config_file=CONFIG_FILE,
     )

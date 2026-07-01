@@ -705,7 +705,15 @@ class CommonCleanup(aetest.CommonCleanup):
 
         log_banner("Disconnecting Device")
 
-        device = self.parent.parameters["device"]
+        # Guard: if connect_to_device errored, 'device' was never
+        # stored and we should not crash trying to disconnect.
+        device = self.parent.parameters.get("device")
+
+        if device is None:
+
+            log.warning("No device found in parameters — skipping disconnect.")
+
+            return
 
         if device.is_connected():
 
