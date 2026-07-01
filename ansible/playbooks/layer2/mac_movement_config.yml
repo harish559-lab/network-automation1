@@ -14,7 +14,7 @@
   gather_facts: false
 
   vars:
-    switch_ip:   "192.168.180.146"
+    switch_ip:   "192.168.89.61"
     switch_user: "admin"
     switch_pass: "admin"
     test_mac:    "00:11:22:33:44:55"
