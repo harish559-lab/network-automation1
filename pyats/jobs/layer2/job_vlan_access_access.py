@@ -34,15 +34,15 @@ from pyats.easypy import run
 JOB_DIR = os.path.dirname(__file__)
 
 REPO_ROOT = os.path.abspath(
-    os.path.join(JOB_DIR, "..", "..")
+    os.path.join(JOB_DIR, "..", "..", "..")
 )
 
 TESTSCRIPT = os.path.join(
-    REPO_ROOT, "testcases", "layer2", "test_vlan_access_access.py"
+    REPO_ROOT, "pyats", "testcases", "layer2", "test_vlan_access_access.py"
 )
 
 TESTBED = os.path.join(
-    REPO_ROOT, "testbed", "testbed.yaml"
+    REPO_ROOT, "pyats", "testbed.yaml"
 )
 
 CONFIG_FILE = os.path.join(

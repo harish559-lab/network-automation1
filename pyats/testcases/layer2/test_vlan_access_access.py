@@ -82,9 +82,13 @@ SENDER_JSON = "/tmp/sender_report.json"
 RECEIVER_JSON = "/tmp/receiver_report.json"
 
 # Path to the shared YAML config consumed by both Ansible and
-# pyATS. Can be overridden per-job via the `config_file`
-# parameter passed in from jobs/layer2/job_vlan_access_access.py
-CONFIG_FILE = "config/layer2/vlan_access_access.yaml"
+# pyATS. Derived from __file__ so it resolves correctly regardless
+# of the working directory pyATS easypy runs in.
+# Layout: pyats/testcases/layer2/ → ../../.. → repo root → config/
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE = os.path.abspath(
+    os.path.join(_SCRIPT_DIR, "..", "..", "..", "config", "layer2", "vlan_access_access.yaml")
+)
 
 # Phase 3: structured summary consumed by generate_dashboard.py
 # (VLAN, ports, packet counts, loss %, MAC learned, exec time, status)

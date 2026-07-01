@@ -32,7 +32,7 @@ access_port2: "Gigabitethernet 1/2"
 # Traffic Hosts (Linux machines generating / receiving traffic)
 # ---------------------------------------------------------
 sender_host: harish@192.168.89.62
-receiver_host: harish@192.168.89.63
+receiver_host: lab-testing@192.168.89.63
 
 traffic_interface: enp2s0
 traffic_timeout: 20

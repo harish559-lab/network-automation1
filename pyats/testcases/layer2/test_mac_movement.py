@@ -34,12 +34,12 @@ DEVICE_NAME   = "Hfcl-Switch"
 
 # Laptop 1 details (connected to Gi 1/1)
 LAPTOP1_USER  = "harish"
-LAPTOP1_IP    = "192.168.180.142"
+LAPTOP1_IP    = "192.168.89.62"
 LAPTOP1_IFACE = "enp2s0"
 
 # Laptop 2 details (connected to Gi 1/2)
 LAPTOP2_USER  = "lab-testing"
-LAPTOP2_IP    = "192.168.180.159"
+LAPTOP2_IP    = "192.168.89.63"
 LAPTOP2_IFACE = "enp44s0"
 
 # Traffic script path (same on both laptops)

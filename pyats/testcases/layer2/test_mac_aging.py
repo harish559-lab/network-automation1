@@ -103,7 +103,7 @@ class TC02_VerifyMacLearning(aetest.Testcase):
         log.info("🚦 Sending bi-directional traffic via Scapy (sudo)...")
         result = subprocess.run(
             ["ssh", "-o", "StrictHostKeyChecking=no",
-             "harish@192.168.180.122",
+             "harish@192.168.89.62",
              "sudo /usr/bin/python3 /home/harish/Documents/network-automation/scripts/MAC_generate_traffic.py --interface enp2s0"
             ],
             capture_output=True, text=True, timeout=60
