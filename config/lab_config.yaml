@@ -1,0 +1,151 @@
+# =============================================================================
+# LAB CONFIG — SINGLE SOURCE OF TRUTH
+# All IPs, credentials, interfaces, VLANs, timers live here ONLY.
+# Ansible, pyATS testbed, and every test script read from this file.
+# =============================================================================
+
+lab:
+  name: HFCL L2 Automation Lab
+
+# -----------------------------------------------------------------------------
+# DEVICES
+# -----------------------------------------------------------------------------
+devices:
+  HFCL:
+    host: 192.168.89.61
+    username: admin
+    password: admin
+    os: linux           # 'linux' required for unicon SSH-only devices (not 'generic')
+    platform: linux
+    protocol: ssh
+    port: 22
+    alias: switch
+    ssh_options: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+    connection_timeout: 60
+    exec_timeout: 60
+
+  # Add SW2 / SW3 here when multi-switch tests are needed
+  # SW2:
+  #   host: 192.168.89.XX
+  #   username: admin
+  #   password: admin
+  #   os: linux
+  #   platform: linux
+  #   protocol: ssh
+  #   port: 22
+  #   alias: peer1
+
+# -----------------------------------------------------------------------------
+# INTERFACES — use exact HFCL CLI names
+# -----------------------------------------------------------------------------
+interfaces:
+  HFCL:
+    access_port_1: "GigabitEthernet 1/1"
+    access_port_2: "GigabitEthernet 1/2"
+    access_port_3: "GigabitEthernet 1/3"
+    trunk_port_1:  "GigabitEthernet 1/9"
+    trunk_port_2:  "GigabitEthernet 1/10"
+    lag_member_1:  "GigabitEthernet 1/11"
+    lag_member_2:  "GigabitEthernet 1/12"
+    mirror_source: "GigabitEthernet 1/3"
+    mirror_dest:   "GigabitEthernet 1/4"
+    oam_port:      "GigabitEthernet 1/5"
+    uplink:        "GigabitEthernet 1/24"
+
+# -----------------------------------------------------------------------------
+# VLANs
+# -----------------------------------------------------------------------------
+vlans:
+  test_vlan_1:      1       # current VLAN used in vlan_access_access tests
+  test_vlan_2:      2
+  test_vlan_3:      3
+  native_vlan:      1
+  management_vlan:  100
+  qinq_outer_vlan:  200
+  qinq_inner_vlan:  300
+  mvrp_test_vlan:   400
+  scale_start_vlan: 500
+  scale_count:      100
+
+# -----------------------------------------------------------------------------
+# TRAFFIC HOSTS (Linux machines generating / receiving traffic)
+# -----------------------------------------------------------------------------
+traffic:
+  sender:
+    host: 192.168.89.65
+    user: harish
+    interface: enp2s0
+  receiver:
+    host: 192.168.89.66
+    user: lab-testing
+    interface: enp2s0
+  packet_count:    1000
+  packet_interval: 0.01
+  timeout:         20
+  loss_threshold:  1.0      # percent — fail if packet loss exceeds this
+
+# -----------------------------------------------------------------------------
+# REPORT PATHS
+# -----------------------------------------------------------------------------
+reports:
+  sender_json:    /tmp/sender_report.json
+  receiver_json:  /tmp/receiver_report.json
+  result_dir:     reports/
+  dashboard_html: reports/dashboard.html
+
+# -----------------------------------------------------------------------------
+# STP / RSTP / MSTP
+# -----------------------------------------------------------------------------
+stp:
+  mode: rstp
+  priority_sw1: 4096
+  priority_sw2: 8192
+  priority_sw3: 16384
+  mstp_instance_1: 1
+  mstp_instance_2: 2
+  mstp_vlan_map:
+    instance_1: [10, 20]
+    instance_2: [30, 40]
+  hello_time:    2
+  forward_delay: 15
+  max_age:       20
+
+# -----------------------------------------------------------------------------
+# LAG / LACP
+# -----------------------------------------------------------------------------
+lag:
+  port_channel_id: 1
+  mode: active
+  members:
+    - "GigabitEthernet 1/11"
+    - "GigabitEthernet 1/12"
+
+# -----------------------------------------------------------------------------
+# ERPS (G.8032)
+# -----------------------------------------------------------------------------
+erps:
+  ring_id:       1
+  control_vlan:  10
+  data_vlans:    [20, 30]
+  ring_port_0:   "GigabitEthernet 1/9"
+  ring_port_1:   "GigabitEthernet 1/10"
+
+# -----------------------------------------------------------------------------
+# ETHERNET OAM
+# -----------------------------------------------------------------------------
+oam:
+  md_name:       "HFCL-MD"
+  ma_name:       "HFCL-MA"
+  mep_id:        1
+  remote_mep_id: 2
+  level:         3
+
+# -----------------------------------------------------------------------------
+# TIMERS (seconds)
+# -----------------------------------------------------------------------------
+timers:
+  convergence_wait:  30
+  mac_aging_time:    300
+  port_up_wait:      5
+  oam_discovery_wait: 10
+  erps_switch_wait:  50
